@@ -2,41 +2,43 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>3D FPS Game</title>
+  <title>Multiplayer FPS Game</title>
   <style>
     body { margin: 0; overflow: hidden; }
     canvas { display: block; }
-
-    #hud, #crosshair {
+    #hud, #crosshair, #status, #playerList {
       position: absolute;
       font-family: sans-serif;
-      color: white;
       z-index: 10;
     }
-
     #hud {
       top: 10px; left: 10px;
-      font-size: 18px;
+      font-size: 16px;
+      color: white;
     }
-
     #crosshair {
-      top: 50%;
-      left: 50%;
+      top: 50%; left: 50%;
       transform: translate(-50%, -50%);
-      font-size: 12px;
+      font-size: 14px;
+      color: white;
       pointer-events: none;
-      z-index: 20;
     }
-
     #status {
-      position: absolute;
       top: 10px; right: 10px;
-      font-family: monospace;
+      font-size: 14px;
       color: yellow;
-      z-index: 20;
-      background: rgba(0,0,0,0.6);
-      padding: 5px 10px;
-      border-radius: 5px;
+      background: rgba(0, 0, 0, 0.5);
+      padding: 6px;
+      border-radius: 6px;
+    }
+    #playerList {
+      top: 50px; right: 10px;
+      color: lightgreen;
+      font-size: 13px;
+      background: rgba(0, 0, 0, 0.5);
+      padding: 5px;
+      border-radius: 6px;
+      max-width: 150px;
     }
   </style>
 </head>
@@ -44,13 +46,14 @@
   <div id="hud">Health: <span id="health">100</span></div>
   <div id="crosshair">+</div>
   <div id="status">Connecting...</div>
+  <div id="playerList">Players:<br/></div>
 
   <script src="https://cdn.jsdelivr.net/npm/three@0.125.2/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.125.2/examples/js/controls/PointerLockControls.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.4.7/dist/peerjs.min.js"></script>
 
   <script>
-    // --- THREE.JS SETUP ---
+    // === Basic Setup ===
     let scene = new THREE.Scene();
     let camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
     let renderer = new THREE.WebGLRenderer();
@@ -58,245 +61,211 @@
     document.body.appendChild(renderer.domElement);
 
     let controls = new THREE.PointerLockControls(camera, document.body);
-    document.body.addEventListener('click', () => {
-      controls.lock();
-    });
+    document.body.addEventListener('click', () => controls.lock());
     scene.add(controls.getObject());
 
     let health = 100;
+    let isDead = false;
     const healthDisplay = document.getElementById("health");
     const statusDisplay = document.getElementById("status");
+    const playerListDisplay = document.getElementById("playerList");
 
-    // Movement controls
     const keys = {};
     document.addEventListener('keydown', e => keys[e.code] = true);
     document.addEventListener('keyup', e => keys[e.code] = false);
 
-    // Ground
-    const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(200, 200),
-      new THREE.MeshStandardMaterial({ color: 0x333333 })
-    );
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
+
+    // Floor
+    let floor = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: 0x222 }));
     floor.rotation.x = -Math.PI / 2;
     scene.add(floor);
-
-    // Light
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
 
     // Obstacles
     const obstacles = [];
     for (let i = 0; i < 15; i++) {
-      const o = new THREE.Mesh(
-        new THREE.BoxGeometry(5, 6, 2),
-        new THREE.MeshStandardMaterial({ color: 0x888888 })
-      );
-      o.position.set((Math.random() - 0.5) * 100, 3, (Math.random() - 0.5) * 100);
-      scene.add(o);
-      obstacles.push(o);
+      let box = new THREE.Mesh(new THREE.BoxGeometry(5, 6, 2), new THREE.MeshStandardMaterial({ color: 0x777 }));
+      box.position.set((Math.random()-0.5)*100, 3, (Math.random()-0.5)*100);
+      scene.add(box);
+      obstacles.push(box);
     }
 
-    // Helper function for collision
     function collides(pos) {
       for (let o of obstacles) {
-        const dx = Math.abs(pos.x - o.position.x);
-        const dz = Math.abs(pos.z - o.position.z);
+        let dx = Math.abs(pos.x - o.position.x);
+        let dz = Math.abs(pos.z - o.position.z);
         if (dx < 3 && dz < 3) return true;
       }
       return false;
     }
 
-    // Player state
     camera.position.set(0, 1.6, 0);
 
-    // Multiplayer setup
-
-    // We'll keep track of remote players here:
-    const remotePlayers = {}; // key: peerId, value: { mesh, position, lastUpdate }
-
-    // Create a mesh for the local player (invisible since camera is first-person)
-    // Remote players will be shown as boxes:
-    function createRemotePlayerMesh() {
-      return new THREE.Mesh(
-        new THREE.BoxGeometry(1, 2, 1),
-        new THREE.MeshStandardMaterial({ color: 0x0000ff })
-      );
-    }
-
-    // --- PEERJS SETUP ---
-    // Use a fixed room ID so everyone joins the same room
-    const ROOM_ID = "shared-game-room";
-
-    // Create Peer with fixed ID (so everyone tries to connect to same ID)
-    // To avoid conflicts, we'll try ROOM_ID + random suffix for host or "client" mode
-    let peer = null;
+    // === Multiplayer ===
+    const ROOM_ID = "shared-room";
+    let peer, isHost = false;
     let connections = {};
-    let isHost = false;
+    const remotePlayers = {};
 
-    // We'll start as host first (try to create peer with ROOM_ID)
-    // If ID taken, fallback to client mode with random ID and connect to ROOM_ID
-    function startPeer() {
-      peer = new Peer(ROOM_ID, {
-        debug: 2
-      });
-
-      peer.on('open', id => {
-        console.log('Peer open with ID:', id);
-        statusDisplay.textContent = "Connected as host (" + id + ")";
-        isHost = true;
-      });
-
-      peer.on('error', err => {
-        console.log('Peer error:', err);
-        if (err.type === 'unavailable-id') {
-          // ROOM_ID already taken, become client with random ID
-          startClientPeer();
-        } else {
-          statusDisplay.textContent = "Peer error: " + err.type;
-        }
-      });
-
-      peer.on('connection', conn => {
-        console.log('New peer connected to host:', conn.peer);
-        setupConnectionHandlers(conn);
-      });
+    function createRemoteMesh(color=0x00f) {
+      return new THREE.Mesh(new THREE.BoxGeometry(1, 2, 1), new THREE.MeshStandardMaterial({ color }));
     }
 
-    // Start client peer with random ID and connect to host ROOM_ID
-    function startClientPeer() {
-      peer = new Peer({
-        debug: 2
-      });
-      peer.on('open', id => {
-        console.log('Client peer open with ID:', id);
-        statusDisplay.textContent = "Connected as client (" + id + ")";
-        connectToHost();
-      });
-
-      peer.on('error', err => {
-        console.log('Client peer error:', err);
-        statusDisplay.textContent = "Peer error: " + err.type;
-      });
-
-      peer.on('connection', conn => {
-        console.log('Client got connection from:', conn.peer);
-        setupConnectionHandlers(conn);
-      });
+    function updatePlayerList() {
+      let list = "Players:<br/>";
+      list += "You<br/>";
+      for (let id in remotePlayers) list += id + "<br/>";
+      playerListDisplay.innerHTML = list;
     }
 
-    // Client connects to host peer ROOM_ID
-    function connectToHost() {
-      let conn = peer.connect(ROOM_ID);
-      conn.on('open', () => {
-        console.log('Connected to host:', ROOM_ID);
-        statusDisplay.textContent = "Connected to host";
-        setupConnectionHandlers(conn);
-      });
-      conn.on('error', err => {
-        console.log('Connection error:', err);
-        statusDisplay.textContent = "Connection error";
-      });
-    }
-
-    // Setup data handlers for a connection
-    function setupConnectionHandlers(conn) {
+    function setupConnection(conn) {
       connections[conn.peer] = conn;
-
       conn.on('data', data => {
-        // Data from remote peer
         if (data.type === 'position') {
-          // Update or create remote player
-          let rp = remotePlayers[conn.peer];
-          if (!rp) {
-            // New remote player
-            const mesh = createRemotePlayerMesh();
+          if (!remotePlayers[conn.peer]) {
+            let mesh = createRemoteMesh();
             scene.add(mesh);
-            remotePlayers[conn.peer] = { mesh, lastUpdate: Date.now() };
+            remotePlayers[conn.peer] = { mesh, lastUpdate: Date.now(), health: 100 };
+            updatePlayerList();
           }
-          let player = remotePlayers[conn.peer];
-          player.mesh.position.set(data.x, data.y, data.z);
-          player.lastUpdate = Date.now();
+          let rp = remotePlayers[conn.peer];
+          rp.mesh.position.set(data.x, data.y, data.z);
+          rp.lastUpdate = Date.now();
+        }
+        if (data.type === 'hit') {
+          if (!isDead) {
+            health -= 25;
+            if (health <= 0) dieAndRespawn();
+          }
         }
       });
-
       conn.on('close', () => {
-        console.log('Connection closed:', conn.peer);
-        // Remove remote player
         if (remotePlayers[conn.peer]) {
           scene.remove(remotePlayers[conn.peer].mesh);
           delete remotePlayers[conn.peer];
+          updatePlayerList();
         }
         delete connections[conn.peer];
       });
     }
 
-    // Start PeerJS
+    function startPeer() {
+      peer = new Peer(ROOM_ID, { debug: 1 });
+      peer.on('open', id => {
+        statusDisplay.textContent = "Connected as Host";
+        isHost = true;
+      });
+      peer.on('connection', conn => setupConnection(conn));
+      peer.on('error', err => {
+        if (err.type === 'unavailable-id') startClient();
+      });
+    }
+
+    function startClient() {
+      peer = new Peer();
+      peer.on('open', id => {
+        statusDisplay.textContent = "Connected as Client";
+        let conn = peer.connect(ROOM_ID);
+        conn.on('open', () => setupConnection(conn));
+      });
+    }
+
     startPeer();
 
-    // --- GAME LOOP ---
+    // === Shooting ===
+    const bullets = [];
+    document.addEventListener('click', () => {
+      if (isDead) return;
+      let bullet = new THREE.Mesh(new THREE.SphereGeometry(0.1), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
+      bullet.position.copy(camera.position);
+      bullet.direction = camera.getWorldDirection(new THREE.Vector3()).clone();
+      scene.add(bullet);
+      bullets.push(bullet);
+    });
+
+    function checkBulletHit(bullet) {
+      for (let id in remotePlayers) {
+        let player = remotePlayers[id];
+        let dist = bullet.position.distanceTo(player.mesh.position);
+        if (dist < 1.5) {
+          connections[id]?.send({ type: 'hit' });
+          return true;
+        }
+      }
+      return false;
+    }
+
+    // === Death + Respawn ===
+    function dieAndRespawn() {
+      isDead = true;
+      health = 0;
+      healthDisplay.textContent = "DEAD";
+      controls.getObject().position.set(999, -999, 999); // hide
+      setTimeout(() => {
+        isDead = false;
+        health = 100;
+        healthDisplay.textContent = health;
+        controls.getObject().position.set(Math.random()*20-10, 1.6, Math.random()*20-10);
+      }, 3000);
+    }
+
+    // === Game Loop ===
     const direction = new THREE.Vector3();
 
     function animate() {
       requestAnimationFrame(animate);
 
-      // Movement
-      direction.set(0, 0, 0);
-      if (keys['KeyW']) direction.z -= 1;
-      if (keys['KeyS']) direction.z += 1;
-      if (keys['KeyA']) direction.x -= 1;
-      if (keys['KeyD']) direction.x += 1;
+      if (!isDead) {
+        direction.set(0, 0, 0);
+        if (keys["KeyW"]) direction.z -= 1;
+        if (keys["KeyS"]) direction.z += 1;
+        if (keys["KeyA"]) direction.x -= 1;
+        if (keys["KeyD"]) direction.x += 1;
+        direction.normalize().applyQuaternion(camera.quaternion);
+        direction.y = 0;
 
-      direction.normalize().applyQuaternion(camera.quaternion);
-      direction.y = 0;
+        let speed = 0.2;
+        let next = controls.getObject().position.clone().add(direction.multiplyScalar(speed));
+        if (!collides(next)) controls.getObject().position.copy(next);
 
-      let speed = 0.2;
-      let nextPos = controls.getObject().position.clone().add(direction.multiplyScalar(speed));
-      if (!collides(nextPos)) controls.getObject().position.copy(nextPos);
-
-      controls.getObject().position.y -= 0.2;
-      if (controls.getObject().position.y < 1.6) controls.getObject().position.y = 1.6;
-
-      // Send position to all peers
-      const pos = controls.getObject().position;
-      for (let peerId in connections) {
-        let conn = connections[peerId];
-        if (conn.open) {
-          conn.send({
-            type: 'position',
-            x: pos.x,
-            y: pos.y,
-            z: pos.z
-          });
-        }
-      }
-
-      // Remove inactive remote players (timeout 10 sec)
-      let now = Date.now();
-      for (let peerId in remotePlayers) {
-        if (now - remotePlayers[peerId].lastUpdate > 10000) {
-          scene.remove(remotePlayers[peerId].mesh);
-          delete remotePlayers[peerId];
-          if (connections[peerId]) {
-            connections[peerId].close();
-            delete connections[peerId];
+        // Send position
+        for (let id in connections) {
+          if (connections[id].open) {
+            connections[id].send({
+              type: "position",
+              x: camera.position.x,
+              y: camera.position.y,
+              z: camera.position.z
+            });
           }
         }
       }
 
-      // Update health display (just static for now)
-      healthDisplay.textContent = Math.floor(health);
+      // Move bullets
+      for (let i = bullets.length - 1; i >= 0; i--) {
+        let b = bullets[i];
+        b.position.add(b.direction.clone().multiplyScalar(0.5));
+        if (checkBulletHit(b)) {
+          scene.remove(b);
+          bullets.splice(i, 1);
+        }
+        if (b.position.length() > 500) {
+          scene.remove(b);
+          bullets.splice(i, 1);
+        }
+      }
 
+      healthDisplay.textContent = isDead ? "DEAD" : Math.floor(health);
       renderer.render(scene, camera);
     }
 
     animate();
 
-    // Resize handler
-    window.addEventListener('resize', () => {
+    window.addEventListener("resize", () => {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
-
   </script>
 </body>
 </html>
