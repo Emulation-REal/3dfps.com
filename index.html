@@ -2,23 +2,20 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Multiplayer FPS Game with Mods</title>
+  <title>Multiplayer FPS with Mods</title>
   <style>
     body { margin: 0; overflow: hidden; }
     canvas { display: block; }
-
-    #hud, #crosshair, #status, #playerList {
+    #hud, #crosshair, #status, #playerList, #chatBox, #modMenu {
       position: absolute;
       font-family: sans-serif;
       z-index: 10;
     }
-
     #hud {
       top: 10px; left: 10px;
       font-size: 16px;
       color: white;
     }
-
     #crosshair {
       top: 50%; left: 50%;
       transform: translate(-50%, -50%);
@@ -26,7 +23,6 @@
       color: white;
       pointer-events: none;
     }
-
     #status {
       top: 10px; right: 10px;
       font-size: 14px;
@@ -35,7 +31,6 @@
       padding: 6px;
       border-radius: 6px;
     }
-
     #playerList {
       top: 50px; right: 10px;
       color: lightgreen;
@@ -45,24 +40,45 @@
       border-radius: 6px;
       max-width: 150px;
     }
-
-    #modMenu {
-      position: absolute;
-      top: 60px;
-      left: 20px;
-      z-index: 20;
-      background: rgba(0, 0, 0, 0.75);
+    #chatBox {
+      bottom: 10px;
+      left: 10px;
       color: white;
-      font-family: sans-serif;
-      padding: 10px;
-      border: 2px solid #00ffff;
-      border-radius: 10px;
+      width: 300px;
+    }
+    #chatMessages {
+      background: rgba(0,0,0,0.5);
+      max-height: 120px;
+      overflow-y: auto;
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+    #chatInput {
+      width: 100%;
+      font-size: 14px;
+      padding: 4px;
+      border: none;
       display: none;
     }
-
-    #modMenu label {
-      display: block;
-      margin-bottom: 5px;
+    #modMenu {
+      display: none;
+      top: 100px; right: 20px;
+      background: rgba(0,0,0,0.8);
+      color: white;
+      padding: 10px;
+      border: 2px solid cyan;
+      border-radius: 8px;
+      width: 200px;
+    }
+    #modMenu h3 {
+      margin-top: 0;
+      font-size: 16px;
+      text-align: center;
+    }
+    .modToggle {
+      display: flex;
+      justify-content: space-between;
+      margin: 5px 0;
     }
   </style>
 </head>
@@ -71,41 +87,71 @@
   <div id="crosshair">+</div>
   <div id="status">Connecting...</div>
   <div id="playerList">Players:<br/></div>
+  <div id="chatBox">
+    <div id="chatMessages"></div>
+    <input type="text" id="chatInput" placeholder="Type your message...">
+  </div>
   <div id="modMenu">
-    <strong>Secret Mod Menu</strong><br><br>
-    <label><input type="checkbox" id="esp"> ESP</label>
-    <label><input type="checkbox" id="tracers"> Tracers</label>
-    <label><input type="checkbox" id="aimbot"> Aimbot</label>
+    <h3>Secret Mod Menu</h3>
+    <div class="modToggle"><span>ESP</span><input type="checkbox" id="modESP"></div>
+    <div class="modToggle"><span>Tracers</span><input type="checkbox" id="modTracers"></div>
+    <div class="modToggle"><span>Aimbot</span><input type="checkbox" id="modAimbot"></div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/three@0.125.2/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.125.2/examples/js/controls/PointerLockControls.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.4.7/dist/peerjs.min.js"></script>
+
   <script>
+    // Core variables
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
     const renderer = new THREE.WebGLRenderer();
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
 
+    // Controls
     const controls = new THREE.PointerLockControls(camera, document.body);
-    document.body.addEventListener('click', () => controls.lock());
+    document.body.addEventListener('click', () => {
+      if (!document.getElementById("chatInput").style.display.includes("block"))
+        controls.lock();
+    });
     scene.add(controls.getObject());
 
-    let health = 100;
-    let isDead = false;
     const healthDisplay = document.getElementById("health");
     const statusDisplay = document.getElementById("status");
     const playerListDisplay = document.getElementById("playerList");
-    const keys = {};
-    let velocityY = 0;
-    let isGrounded = true;
+    const chatMessages = document.getElementById("chatMessages");
+    const chatInput = document.getElementById("chatInput");
+    const modMenu = document.getElementById("modMenu");
+    const modESP = document.getElementById("modESP");
+    const modTracers = document.getElementById("modTracers");
+    const modAimbot = document.getElementById("modAimbot");
 
-    document.addEventListener('keydown', e => keys[e.code] = true);
+    let keys = {}, isDead = false, velocityY = 0, grounded = true, health = 100;
+    document.addEventListener('keydown', e => {
+      if (e.key === '/' && chatInput.style.display === 'none') {
+        chatInput.style.display = 'block';
+        chatInput.focus();
+        controls.unlock();
+        e.preventDefault();
+        return;
+      }
+      keys[e.code] = true;
+    });
     document.addEventListener('keyup', e => keys[e.code] = false);
+    chatInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        if (chatInput.value.trim() !== '') {
+          appendMessage("You: " + chatInput.value);
+          broadcast({ type: "chat", message: chatInput.value });
+        }
+        chatInput.value = "";
+        chatInput.style.display = "none";
+      }
+    });
 
-    // === Light and Map ===
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
+    // Floor
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(200, 200),
       new THREE.MeshStandardMaterial({ color: 0x888877 })
@@ -113,77 +159,77 @@
     floor.rotation.x = -Math.PI / 2;
     scene.add(floor);
 
-    const containerColors = [0x0055ff, 0xff3333, 0x33cc33, 0xffff33];
-    const obstacles = [];
+    const obstacles = [], colors = [0xff0000, 0x00ff00, 0x0000ff, 0xffff00];
     for (let i = 0; i < 15; i++) {
       const box = new THREE.Mesh(
         new THREE.BoxGeometry(5, 6, 2),
-        new THREE.MeshStandardMaterial({ color: containerColors[i % containerColors.length] })
+        new THREE.MeshStandardMaterial({ color: colors[i % 4] })
       );
-      box.position.set((Math.random() - 0.5) * 100, 3, (Math.random() - 0.5) * 100);
+      box.position.set(Math.random()*100-50, 3, Math.random()*100-50);
       scene.add(box);
       obstacles.push(box);
     }
 
-    function collides(pos) {
-      for (let o of obstacles) {
-        if (Math.abs(pos.x - o.position.x) < 3 &&
-            Math.abs(pos.z - o.position.z) < 3 &&
-            Math.abs(pos.y - o.position.y) < 3) return true;
-      }
-      return false;
+    // Chat helper
+    function appendMessage(text) {
+      const msg = document.createElement("div");
+      msg.textContent = text;
+      chatMessages.appendChild(msg);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
     }
 
-    camera.position.set(0, 1.6, 0);
-
-    // === Multiplayer ===
+    // PeerJS multiplayer
     const ROOM_ID = "shared-room";
     let peer, isHost = false;
-    const connections = {};
-    const remotePlayers = {};
+    const connections = {}, remotePlayers = {};
 
-    function updatePlayerList() {
-      let html = "Players:<br/>You<br/>";
-      for (const id in remotePlayers) {
-        html += `${id} (${remotePlayers[id].health})<br/>`;
-      }
-      playerListDisplay.innerHTML = html;
-    }
-
-    function createRemoteMesh() {
-      return new THREE.Mesh(
+    function createRemoteMesh(id) {
+      const box = new THREE.Mesh(
         new THREE.BoxGeometry(1, 2, 1),
-        new THREE.MeshStandardMaterial({ color: 0x0000ff })
+        new THREE.MeshStandardMaterial({ color: 0x00ffff, transparent: true, opacity: 0.7 })
       );
+      box.name = id;
+      scene.add(box);
+      return box;
     }
 
     function setupConnection(conn) {
       connections[conn.peer] = conn;
       conn.on('data', data => {
-        if (data.type === 'position') {
+        if (data.type === "position") {
           if (!remotePlayers[conn.peer]) {
-            const mesh = createRemoteMesh();
-            scene.add(mesh);
+            const mesh = createRemoteMesh(conn.peer);
             remotePlayers[conn.peer] = { mesh, health: 100 };
             updatePlayerList();
           }
           remotePlayers[conn.peer].mesh.position.set(data.x, data.y, data.z);
-        } else if (data.type === 'hit') {
+        }
+        if (data.type === "hit") {
           if (!isDead) {
             health -= 10;
             if (health <= 0) dieAndRespawn();
           }
         }
-      });
-
-      conn.on('close', () => {
-        if (remotePlayers[conn.peer]) {
-          scene.remove(remotePlayers[conn.peer].mesh);
-          delete remotePlayers[conn.peer];
-          updatePlayerList();
+        if (data.type === "chat") {
+          appendMessage(`${conn.peer}: ${data.message}`);
         }
-        delete connections[conn.peer];
       });
+      conn.on("close", () => {
+        if (remotePlayers[conn.peer]) scene.remove(remotePlayers[conn.peer].mesh);
+        delete remotePlayers[conn.peer];
+        updatePlayerList();
+      });
+    }
+
+    function broadcast(data) {
+      for (const id in connections)
+        connections[id].send(data);
+    }
+
+    function updatePlayerList() {
+      let html = "Players:<br/>You<br/>";
+      for (const id in remotePlayers) html += `${id}<br/>`;
+      playerListDisplay.innerHTML = html;
     }
 
     function startPeerAsHost() {
@@ -192,9 +238,9 @@
         statusDisplay.textContent = "Connected as Host";
         isHost = true;
       });
-      peer.on('connection', conn => setupConnection(conn));
+      peer.on('connection', setupConnection);
       peer.on('error', err => {
-        if (err.type === 'unavailable-id') startPeerAsClient();
+        if (err.type === "unavailable-id") startPeerAsClient();
       });
     }
 
@@ -209,30 +255,20 @@
 
     startPeerAsHost();
 
-    // === Shooting ===
+    // Shooting
     const bullets = [];
-    document.addEventListener('click', () => {
-      if (isDead) return;
-      const bullet = new THREE.Mesh(
-        new THREE.SphereGeometry(0.1),
-        new THREE.MeshBasicMaterial({ color: 0xff0000 })
-      );
-      bullet.position.copy(camera.position);
-      bullet.direction = camera.getWorldDirection(new THREE.Vector3()).clone();
-      scene.add(bullet);
-      bullets.push(bullet);
-    });
-
-    function checkBulletHit(bullet) {
-      for (const id in remotePlayers) {
-        const player = remotePlayers[id];
-        if (bullet.position.distanceTo(player.mesh.position) < 1.5) {
-          connections[id]?.send({ type: 'hit' });
-          return true;
-        }
+    document.addEventListener('mousedown', e => {
+      if (e.button === 0 && !isDead) {
+        const b = new THREE.Mesh(
+          new THREE.SphereGeometry(0.1),
+          new THREE.MeshBasicMaterial({ color: 0xff0000 })
+        );
+        b.position.copy(camera.position);
+        b.direction = camera.getWorldDirection(new THREE.Vector3());
+        scene.add(b);
+        bullets.push(b);
       }
-      return false;
-    }
+    });
 
     function dieAndRespawn() {
       isDead = true;
@@ -242,33 +278,18 @@
       setTimeout(() => {
         isDead = false;
         health = 100;
-        healthDisplay.textContent = health;
-        controls.getObject().position.set(Math.random() * 20 - 10, 1.6, Math.random() * 20 - 10);
+        controls.getObject().position.set(0, 1.6, 0);
       }, 3000);
     }
 
-    // === Mod Menu ===
-    const modMenu = document.getElementById("modMenu");
-    let showMenu = false;
-    document.addEventListener('keydown', e => {
-      if (e.key === ';') {
-        showMenu = !showMenu;
-        modMenu.style.display = showMenu ? "block" : "none";
-      }
-    });
-
-    const espCheckbox = document.getElementById("esp");
-    const tracersCheckbox = document.getElementById("tracers");
-    const aimbotCheckbox = document.getElementById("aimbot");
-
-    // === Main Loop ===
+    // Jumping + Movement + Mods
     const dirVec = new THREE.Vector3();
-    const aimVec = new THREE.Vector3();
-    const lineMat = new THREE.LineBasicMaterial({ color: 0x00ffff });
+    document.addEventListener("keydown", e => {
+      if (e.key === ';') modMenu.style.display = modMenu.style.display === "block" ? "none" : "block";
+    });
 
     function animate() {
       requestAnimationFrame(animate);
-
       if (!isDead) {
         dirVec.set(0, 0, 0);
         if (keys.KeyW) dirVec.z -= 1;
@@ -278,72 +299,71 @@
         dirVec.normalize().applyQuaternion(camera.quaternion);
         dirVec.y = 0;
 
-        if (isGrounded && keys.Space) velocityY = 0.25;
-
-        velocityY -= 0.01; // gravity
-        const nextPos = controls.getObject().position.clone().add(dirVec.multiplyScalar(0.2));
-        nextPos.y += velocityY;
-        if (!collides(nextPos)) {
-          controls.getObject().position.copy(nextPos);
-          isGrounded = nextPos.y <= 1.6;
-        } else {
+        const obj = controls.getObject();
+        const next = obj.position.clone().add(dirVec.clone().multiplyScalar(0.2));
+        if (next.y <= 1.6) {
+          next.y = 1.6;
           velocityY = 0;
+          grounded = true;
         }
 
-        for (const id in connections) {
-          const conn = connections[id];
-          if (conn.open) {
-            const p = controls.getObject().position;
-            conn.send({ type: 'position', x: p.x, y: p.y, z: p.z });
-          }
+        if (!collides(next)) obj.position.copy(next);
+
+        if (keys.Space && grounded) {
+          velocityY = 0.25;
+          grounded = false;
         }
 
-        // Aimbot
-        if (aimbotCheckbox.checked && keys.Mouse1) {
-          let closest = null, minDist = Infinity;
-          for (const id in remotePlayers) {
-            const d = camera.position.distanceTo(remotePlayers[id].mesh.position);
-            if (d < minDist) {
-              minDist = d;
-              closest = remotePlayers[id].mesh.position.clone();
-            }
-          }
-          if (closest) {
-            camera.lookAt(closest);
-          }
-        }
+        obj.position.y += velocityY;
+        velocityY -= 0.01;
+
+        // Send position
+        broadcast({ type: 'position', x: obj.position.x, y: obj.position.y, z: obj.position.z });
       }
 
+      // Bullets
       bullets.forEach((b, i) => {
         b.position.add(b.direction.clone().multiplyScalar(0.5));
-        if (checkBulletHit(b)) {
-          scene.remove(b); bullets.splice(i, 1);
-        } else if (b.position.length() > 200) {
-          scene.remove(b); bullets.splice(i, 1);
+        for (const id in remotePlayers) {
+          if (b.position.distanceTo(remotePlayers[id].mesh.position) < 1.5) {
+            connections[id]?.send({ type: "hit" });
+            scene.remove(b); bullets.splice(i, 1);
+          }
         }
       });
 
-      // ESP + Tracers
-      if (espCheckbox.checked || tracersCheckbox.checked) {
+      // ESP/Tracers
+      if (modESP.checked || modTracers.checked) {
         for (const id in remotePlayers) {
-          const target = remotePlayers[id];
-          const box = new THREE.BoxHelper(target.mesh, 0x00ff00);
-          scene.add(box);
-          if (tracersCheckbox.checked) {
-            const geometry = new THREE.BufferGeometry().setFromPoints([
-              camera.position,
-              target.mesh.position
-            ]);
-            const line = new THREE.Line(geometry, lineMat);
-            scene.add(line);
-            setTimeout(() => scene.remove(line), 50);
+          const player = remotePlayers[id];
+          if (modESP.checked) {
+            const label = document.getElementById("esp-" + id) || (() => {
+              const lbl = document.createElement("div");
+              lbl.id = "esp-" + id;
+              lbl.style.position = "absolute";
+              lbl.style.color = "red";
+              lbl.style.zIndex = "10";
+              document.body.appendChild(lbl);
+              return lbl;
+            })();
+            const pos = player.mesh.position.clone().project(camera);
+            label.style.left = (pos.x * 0.5 + 0.5) * window.innerWidth + "px";
+            label.style.top = (-pos.y * 0.5 + 0.5) * window.innerHeight + "px";
+            label.textContent = `${id} (${player.health})`;
           }
-          setTimeout(() => scene.remove(box), 50);
         }
       }
 
       healthDisplay.textContent = isDead ? "DEAD" : Math.floor(health);
       renderer.render(scene, camera);
+    }
+
+    function collides(pos) {
+      for (let o of obstacles) {
+        if (Math.abs(pos.x - o.position.x) < 3 && Math.abs(pos.z - o.position.z) < 3)
+          return true;
+      }
+      return false;
     }
 
     animate();
