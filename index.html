@@ -2,64 +2,17 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>3D FPS Multiplayer</title>
+  <title>Basic 3D FPS Test</title>
   <style>
     body { margin: 0; overflow: hidden; }
     canvas { display: block; }
-    #hud, #crosshair {
-      position: absolute;
-      font-family: sans-serif;
-      color: white;
-      z-index: 10;
-    }
-    #hud {
-      top: 10px; left: 10px;
-      font-size: 18px;
-    }
-    #modMenu {
-      position: absolute;
-      top: 50px; left: 50px;
-      background: rgba(0, 0, 0, 0.8);
-      color: white;
-      font-family: sans-serif;
-      padding: 10px;
-      border: 1px solid #ccc;
-      display: none;
-      z-index: 20;
-    }
-    #modMenu label {
-      display: block;
-      margin-bottom: 5px;
-    }
-    #crosshair {
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      font-size: 12px;
-      pointer-events: none;
-      z-index: 20;
-    }
   </style>
 </head>
 <body>
-  <div id="hud">Health: <span id="health">100</span></div>
-  <div id="modMenu">
-    <h3>Mod Menu</h3>
-    <label><input type="checkbox" id="esp"> ESP</label>
-    <label><input type="checkbox" id="tracers"> Tracers</label>
-    <label><input type="checkbox" id="aimbot"> Aimbot (Hold Right Mouse)</label>
-    <label><input type="checkbox" id="fly"> Fly Mode</label>
-    <label><input type="checkbox" id="god"> God Mode</label>
-    <label><input type="checkbox" id="speed"> Speed Hack</label>
-  </div>
-  <div id="crosshair">+</div>
-
   <script src="https://cdn.jsdelivr.net/npm/three@0.125.2/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.125.2/examples/js/controls/PointerLockControls.js"></script>
-  <script src="https://unpkg.com/netplayjs@0.4.1/dist/netplay.js"></script>
 
   <script>
-    // ThreeJS setup
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
     const renderer = new THREE.WebGLRenderer({antialias:true});
@@ -68,48 +21,9 @@
 
     const controls = new THREE.PointerLockControls(camera, document.body);
     document.body.addEventListener('click', () => {
-      if (!modMenuVisible) controls.lock();
+      controls.lock();
     });
     scene.add(controls.getObject());
-
-    // HUD & mods UI
-    const healthDisplay = document.getElementById("health");
-    const espCheckbox = document.getElementById("esp");
-    const tracersCheckbox = document.getElementById("tracers");
-    const aimbotCheckbox = document.getElementById("aimbot");
-    const flyCheckbox = document.getElementById("fly");
-    const godCheckbox = document.getElementById("god");
-    const speedCheckbox = document.getElementById("speed");
-    const modMenu = document.getElementById("modMenu");
-    const crosshair = document.getElementById("crosshair");
-
-    let health = 100;
-    let isAiming = false;
-    let modMenuVisible = false;
-
-    document.addEventListener('keydown', e => {
-      if (e.key === ';') {
-        modMenuVisible = !modMenuVisible;
-        modMenu.style.display = modMenuVisible ? "block" : "none";
-        if (modMenuVisible) controls.unlock();
-        else controls.lock();
-      }
-    });
-
-    document.addEventListener('mousedown', e => {
-      if (e.button === 2) isAiming = true;
-    });
-    document.addEventListener('mouseup', e => {
-      if (e.button === 2) isAiming = false;
-    });
-
-    // Movement keys tracking
-    const keys = {};
-    document.addEventListener('keydown', e => keys[e.code] = true);
-    document.addEventListener('keyup', e => keys[e.code] = false);
-
-    // Lighting
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
 
     // Floor
     const floor = new THREE.Mesh(
@@ -119,292 +33,24 @@
     floor.rotation.x = -Math.PI / 2;
     scene.add(floor);
 
-    // Obstacles
-    const obstacles = [];
-    for (let i = 0; i < 15; i++) {
-      const o = new THREE.Mesh(
-        new THREE.BoxGeometry(5, 6, 2),
-        new THREE.MeshStandardMaterial({ color: 0x888888 })
-      );
-      o.position.set((Math.random() - 0.5) * 100, 3, (Math.random() - 0.5) * 100);
-      scene.add(o);
-      obstacles.push(o);
-    }
+    // Lighting
+    const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
+    scene.add(light);
 
-    // Player start pos
-    camera.position.set(0, 1.6, 0);
-    const direction = new THREE.Vector3();
+    camera.position.set(0, 1.6, 5);
 
-    // Bullets
-    const bullets = [];
-
-    document.addEventListener("click", () => {
-      if (!controls.isLocked || modMenuVisible) return;
-      const b = new THREE.Mesh(
-        new THREE.SphereGeometry(0.1),
-        new THREE.MeshBasicMaterial({ color: 0xffff00 })
-      );
-      b.position.copy(camera.position);
-      const dir = new THREE.Vector3();
-      camera.getWorldDirection(dir);
-      b.userData = { velocity: dir.clone().multiplyScalar(1) };
-      bullets.push(b);
-      scene.add(b);
-    });
-
-    // Overlay canvas for 2D drawing (ESP, tracers, name tags)
-    const overlay = document.createElement('canvas');
-    overlay.width = window.innerWidth;
-    overlay.height = window.innerHeight;
-    overlay.style.position = 'absolute';
-    overlay.style.top = '0';
-    overlay.style.left = '0';
-    overlay.style.pointerEvents = 'none';
-    overlay.style.zIndex = 15;
-    document.body.appendChild(overlay);
-    const ctx = overlay.getContext('2d');
-    ctx.font = "12px Arial";
-    ctx.textAlign = "center";
-
-    // Simple collision check
-    function collides(pos) {
-      for (const o of obstacles) {
-        const dx = Math.abs(pos.x - o.position.x);
-        const dz = Math.abs(pos.z - o.position.z);
-        if (dx < 3 && dz < 3) return true;
-      }
-      return false;
-    }
-
-    // Enemy class for local enemies and remote players
-    class Enemy {
-      constructor(name = "Enemy", pos = new THREE.Vector3()) {
-        this.name = name;
-        this.mesh = new THREE.Mesh(
-          new THREE.BoxGeometry(1, 2, 1),
-          new THREE.MeshStandardMaterial({ color: 0xff0000 })
-        );
-        this.mesh.position.copy(pos);
-        this.health = 100;
-        scene.add(this.mesh);
-      }
-      setPosition(pos) { this.mesh.position.copy(pos); }
-      getPosition() { return this.mesh.position; }
-      remove() { scene.remove(this.mesh); }
-    }
-
-    // Local enemies array (bot enemies)
-    const enemies = [];
-    function spawnEnemy() {
-      const pos = new THREE.Vector3((Math.random() - 0.5) * 80, 1, (Math.random() - 0.5) * 80);
-      const e = new Enemy(`Enemy_${enemies.length}`, pos);
-      enemies.push(e);
-    }
-    for (let i = 0; i < 20; i++) spawnEnemy();
-
-    // Multiplayer players storage
-    const players = new Map();
-
-    // P2P Multiplayer with NetplayJS
-    class FPSGame extends netplay.Game {
-      constructor() {
-        super();
-        this.inputs = new Map();
-        this.playerPos = new THREE.Vector3();
-        this.playerHealth = 100;
-      }
-
-      tick(inputs) {
-        // inputs: Map(peer, input)
-        this.inputs = inputs;
-        // For local player, send position and health to peers
-        this.playerPos.copy(controls.getObject().position);
-        this.playerHealth = health;
-      }
-    }
-
-    // Instantiate game
-    const game = new FPSGame();
-
-    // Connect using NetplayJS
-    const netplayjs = window.netplayjs;
-    let client = null;
-    netplayjs.connect({
-      GameClass: FPSGame,
-      room: "myroom123", // change this to your room name
-      onReady: (_client) => {
-        client = _client;
-      }
-    });
-
-    // Helper to get or create remote player objects
-    function getPlayerMesh(id) {
-      if (!players.has(id)) {
-        const mesh = new Enemy("Player_" + id, new THREE.Vector3());
-        // Different color so players stand out
-        mesh.mesh.material.color.set(0x00ff00);
-        players.set(id, mesh);
-      }
-      return players.get(id);
-    }
-
-    // Animate loop
+    // Simple animation loop
     function animate() {
       requestAnimationFrame(animate);
-      ctx.clearRect(0, 0, overlay.width, overlay.height);
-
-      // Movement
-      direction.set(0, 0, 0);
-      if (keys['KeyW']) direction.z -= 1;
-      if (keys['KeyS']) direction.z += 1;
-      if (keys['KeyA']) direction.x -= 1;
-      if (keys['KeyD']) direction.x += 1;
-      direction.normalize().applyQuaternion(camera.quaternion);
-      direction.y = 0;
-
-      let speed = speedCheckbox.checked ? 0.6 : 0.2;
-      let nextPos = controls.getObject().position.clone().add(direction.multiplyScalar(speed));
-      if (!collides(nextPos)) controls.getObject().position.copy(nextPos);
-
-      if (!flyCheckbox.checked) {
-        controls.getObject().position.y -= 0.2;
-        if (controls.getObject().position.y < 1.6) controls.getObject().position.y = 1.6;
-      }
-
-      // Enemies movement & damage
-      enemies.forEach((e, i) => {
-        if (!e) return;
-        const pos = e.getPosition();
-        const dist = pos.distanceTo(camera.position);
-        if (dist < 1 && !godCheckbox.checked) {
-          health -= 0.2;
-          health = Math.max(0, health);
-          healthDisplay.textContent = Math.floor(health);
-        } else {
-          const dir = new THREE.Vector3().subVectors(camera.position, pos).normalize();
-          pos.addScaledVector(dir, 0.03);
-          e.setPosition(pos);
-        }
-      });
-
-      // Bullets update
-      bullets.forEach((b, i) => {
-        b.position.add(b.userData.velocity);
-        enemies.forEach((e, j) => {
-          if (b.position.distanceTo(e.getPosition()) < 1) {
-            e.health -= 50;
-            if (e.health <= 0) {
-              e.remove();
-              enemies.splice(j, 1);
-              setTimeout(spawnEnemy, 3000);
-            }
-            scene.remove(b);
-            bullets.splice(i, 1);
-          }
-        });
-      });
-
-      // Multiplayer sync: send local player position & health
-      if (client && client.isConnected()) {
-        client.sendInput({
-          pos: controls.getObject().position.toArray(),
-          health: health,
-        });
-      }
-
-      // Render other players
-      if (client) {
-        // Update remote players based on inputs map
-        const inputs = game.inputs;
-        inputs.forEach((input, peer) => {
-          if (peer === client) return; // skip local player
-          const id = peer.getID();
-          const playerMesh = getPlayerMesh(id);
-          if (input.pos) {
-            playerMesh.setPosition(new THREE.Vector3().fromArray(input.pos));
-            playerMesh.health = input.health ?? 100;
-          }
-        });
-      }
-
-      // ESP, tracers, aimbot targeting
-      let closestEnemy = null;
-      let closestDist = Infinity;
-
-      // Draw enemies overlays (only if ESP enabled)
-      enemies.forEach((e, i) => {
-        const pos = e.getPosition();
-        const screen = pos.clone().project(camera);
-        if (espCheckbox.checked) {
-          const x = (screen.x * 0.5 + 0.5) * overlay.width;
-          const y = (-screen.y * 0.5 + 0.5) * overlay.height;
-          // Smaller box for ESP
-          ctx.strokeStyle = 'lime';
-          ctx.strokeRect(x - 5, y - 10, 10, 20);
-
-          // Name tag
-          ctx.fillStyle = 'white';
-          ctx.fillText(e.name, x, y - 12);
-
-          // Health bar
-          const barWidth = 20;
-          const hpWidth = barWidth * (e.health / 100);
-          ctx.fillStyle = 'red';
-          ctx.fillRect(x - barWidth/2, y - 8, barWidth, 4);
-          ctx.fillStyle = 'lime';
-          ctx.fillRect(x - barWidth/2, y - 8, hpWidth, 4);
-          ctx.strokeStyle = 'white';
-          ctx.strokeRect(x - barWidth/2, y - 8, barWidth, 4);
-        }
-
-        const dist = pos.distanceTo(camera.position);
-        if (dist < closestDist) {
-          closestEnemy = e;
-          closestDist = dist;
-        }
-      });
-
-      // Draw other players overlays (name tag always visible)
-      players.forEach((p, id) => {
-        const pos = p.getPosition();
-        const screen = pos.clone().project(camera);
-        if (screen.z < 1) { // in front of camera
-          const x = (screen.x * 0.5 + 0.5) * overlay.width;
-          const y = (-screen.y * 0.5 + 0.5) * overlay.height;
-          // Name tag always visible
-          ctx.fillStyle = 'cyan';
-          ctx.fillText(p.name, x, y - 12);
-
-          if (espCheckbox.checked) {
-            // Health bar when ESP enabled
-            const barWidth = 20;
-            const hpWidth = barWidth * (p.health / 100);
-            ctx.fillStyle = 'red';
-            ctx.fillRect(x - barWidth/2, y - 8, barWidth, 4);
-            ctx.fillStyle = 'lime';
-            ctx.fillRect(x - barWidth/2, y - 8, hpWidth, 4);
-            ctx.strokeStyle = 'white';
-            ctx.strokeRect(x - barWidth/2, y - 8, barWidth, 4);
-          }
-        }
-      });
-
-      // Aimbot logic (look at closest enemy when aiming)
-      if (aimbotCheckbox.checked && isAiming && closestEnemy) {
-        camera.lookAt(closestEnemy.getPosition());
-      }
-
       renderer.render(scene, camera);
     }
     animate();
 
-    // Resize handler
+    // Resize
     window.addEventListener('resize', () => {
-      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.aspect = window.innerWidth/window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
-      overlay.width = window.innerWidth;
-      overlay.height = window.innerHeight;
     });
   </script>
 </body>
