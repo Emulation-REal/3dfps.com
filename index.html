@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>3D FPS Game with PeerJS Multiplayer</title>
+  <title>3D FPS Game with Mods and Multiplayer Server Selection</title>
   <style>
-    body { margin: 0; overflow: hidden; }
+    body { margin: 0; overflow: hidden; background: #111; }
     canvas { display: block; }
     #hud, #crosshair {
       position: absolute;
@@ -16,14 +16,21 @@
       top: 10px; left: 10px;
       font-size: 18px;
     }
-    #peerControls {
+    #modMenu {
       position: absolute;
-      top: 10px; right: 10px;
-      background: rgba(0,0,0,0.7);
-      padding: 10px;
+      top: 50px;
+      left: 50px;
+      background: rgba(0, 0, 0, 0.8);
       color: white;
       font-family: sans-serif;
-      z-index: 30;
+      padding: 10px;
+      border: 1px solid #ccc;
+      display: none;
+      z-index: 20;
+    }
+    #modMenu label {
+      display: block;
+      margin-bottom: 5px;
     }
     #crosshair {
       top: 50%;
@@ -33,24 +40,69 @@
       pointer-events: none;
       z-index: 20;
     }
+    #serverList {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      background: rgba(0,0,0,0.8);
+      color: white;
+      padding: 10px;
+      max-height: 200px;
+      overflow-y: auto;
+      width: 220px;
+      font-family: sans-serif;
+      z-index: 1000;
+      border: 1px solid #555;
+      border-radius: 5px;
+    }
+    #serverList button {
+      width: 100%;
+      margin-bottom: 5px;
+      background: #222;
+      border: none;
+      color: white;
+      padding: 5px;
+      cursor: pointer;
+      border-radius: 3px;
+    }
+    #serverList button:hover {
+      background: #444;
+    }
+    #status {
+      position: fixed;
+      bottom: 10px;
+      left: 10px;
+      color: white;
+      font-family: sans-serif;
+      background: rgba(0,0,0,0.6);
+      padding: 5px 10px;
+      border-radius: 4px;
+      z-index: 1000;
+    }
   </style>
 </head>
 <body>
 <div id="hud">Health: <span id="health">100</span></div>
-<div id="peerControls">
-  <div>Your Peer ID: <span id="myPeerId">...</span></div>
-  <input type="text" id="connectToId" placeholder="Other Peer ID" />
-  <button id="connectBtn">Connect</button>
-  <div>Status: <span id="connStatus">Not connected</span></div>
+<div id="modMenu">
+  <h3>Mod Menu</h3>
+  <label><input type="checkbox" id="esp"> ESP</label>
+  <label><input type="checkbox" id="tracers"> Tracers</label>
+  <label><input type="checkbox" id="aimbot"> Aimbot (Hold Right Mouse)</label>
+  <label><input type="checkbox" id="fly"> Fly Mode</label>
+  <label><input type="checkbox" id="god"> God Mode</label>
+  <label><input type="checkbox" id="speed"> Speed Hack</label>
 </div>
 <div id="crosshair">+</div>
 
+<div id="serverList"><strong>Available Servers:</strong><br><em>Loading...</em></div>
+<div id="status">Not connected</div>
+
 <script src="https://cdn.jsdelivr.net/npm/three@0.125.2/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.125.2/examples/js/controls/PointerLockControls.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/peerjs@1.4.7/dist/peerjs.min.js"></script>
+<script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
 
 <script>
-  // Basic setup (your original code mostly)
+  // === THREE.JS Setup ===
   let scene = new THREE.Scene();
   let camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
   let renderer = new THREE.WebGLRenderer();
@@ -58,12 +110,41 @@
   document.body.appendChild(renderer.domElement);
 
   let controls = new THREE.PointerLockControls(camera, document.body);
-  document.body.addEventListener('click', () => controls.lock());
+  document.body.addEventListener('click', () => {
+    if (!modMenuVisible && !joinedServer) controls.lock();
+  });
   scene.add(controls.getObject());
 
   let health = 100;
+  let isAiming = false;
+  let modMenuVisible = false;
+
+  document.addEventListener('keydown', e => {
+    if (e.key === ';') {
+      modMenuVisible = !modMenuVisible;
+      document.getElementById("modMenu").style.display = modMenuVisible ? "block" : "none";
+      if (modMenuVisible) controls.unlock();
+      else if(joinedServer) controls.lock();
+    }
+  });
+
+  document.addEventListener('mousedown', e => {
+    if (e.button === 2) isAiming = true;
+  });
+  document.addEventListener('mouseup', e => {
+    if (e.button === 2) isAiming = false;
+  });
+
   const healthDisplay = document.getElementById("health");
-  healthDisplay.textContent = health;
+  const espCheckbox = document.getElementById("esp");
+  const tracersCheckbox = document.getElementById("tracers");
+  const aimbotCheckbox = document.getElementById("aimbot");
+  const flyCheckbox = document.getElementById("fly");
+  const godCheckbox = document.getElementById("god");
+  const speedCheckbox = document.getElementById("speed");
+
+  // Lights
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
 
   // Ground
   const floor = new THREE.Mesh(
@@ -85,36 +166,46 @@
     obstacles.push(o);
   }
 
-  // Local player variables
+  // Player position & movement
+  camera.position.set(0, 1.6, 0);
   const keys = {};
   document.addEventListener('keydown', e => keys[e.code] = true);
   document.addEventListener('keyup', e => keys[e.code] = false);
-
-  // Movement direction vector
   const direction = new THREE.Vector3();
 
-  // Bullets local & remote
-  const bullets = [];
-  const remoteBullets = [];
+  // Multiplayer variables
+  let socket;
+  let clientId = null;
+  let joinedServer = null;
+  let players = {}; // Other players: { id: {mesh, pos, rot} }
 
-  // Remote player data
-  let remotePlayer = null;
-
-  // Create a simple mesh for remote player
-  function createRemotePlayerMesh() {
+  // Add simple player box for others
+  function createPlayerMesh(color=0x00ff00) {
     const mesh = new THREE.Mesh(
       new THREE.BoxGeometry(1, 2, 1),
-      new THREE.MeshStandardMaterial({ color: 0x0000ff })
+      new THREE.MeshStandardMaterial({ color })
     );
-    mesh.position.set(0,1,0);
     scene.add(mesh);
     return mesh;
   }
 
-  // Lights
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
+  // Server list UI update
+  function updateServerListUI(servers) {
+    const container = document.getElementById("serverList");
+    container.innerHTML = "<strong>Available Servers:</strong><br>";
+    if (!servers || Object.keys(servers).length === 0) {
+      container.innerHTML += "<em>No servers found</em>";
+      return;
+    }
+    Object.entries(servers).forEach(([id, info]) => {
+      const btn = document.createElement("button");
+      btn.textContent = info.name + " (" + (info.players || 1) + " players)";
+      btn.onclick = () => joinServer(id);
+      container.appendChild(btn);
+    });
+  }
 
-  // Collision check function (same as before)
+  // Collision check
   function collides(pos) {
     for (let o of obstacles) {
       const dx = Math.abs(pos.x - o.position.x);
@@ -124,96 +215,89 @@
     return false;
   }
 
-  // Shoot bullet function
-  function shootBullet(position, directionVec, isRemote = false) {
-    const b = new THREE.Mesh(
-      new THREE.SphereGeometry(0.1),
-      new THREE.MeshBasicMaterial({ color: isRemote ? 0x00ffff : 0xffff00 })
-    );
-    b.position.copy(position);
-    b.userData.velocity = directionVec.clone().multiplyScalar(1);
-    if (isRemote) remoteBullets.push(b);
-    else bullets.push(b);
-    scene.add(b);
+  // Join a server (room)
+  function joinServer(serverId) {
+    if(!socket) return;
+    joinedServer = serverId;
+    document.getElementById("status").textContent = "Joining server: " + serverId;
+    socket.emit("joinServer", serverId);
+    document.getElementById("serverList").style.display = "none";
+    if (!modMenuVisible) controls.lock();
   }
 
-  document.addEventListener("click", () => {
-    if (!controls.isLocked) return;
-    const dir = new THREE.Vector3();
-    camera.getWorldDirection(dir);
-    shootBullet(camera.position, dir, false);
-    // Send bullet shoot info to remote
-    if (conn && conn.open) {
-      conn.send({type: 'shoot', position: camera.position.toArray(), direction: dir.toArray()});
-    }
-  });
+  // Initialize socket.io connection & multiplayer
+  function initMultiplayer() {
+    socket = io("https://emulation12-mp-signaling.glitch.me"); // Custom minimal signaling server (see note below)
+    
+    socket.on('connect', () => {
+      clientId = socket.id;
+      console.log("Connected to signaling server:", clientId);
+      document.getElementById("status").textContent = "Connected as " + clientId;
 
-  // --- PeerJS Multiplayer Setup ---
-  let peer = null;
-  let conn = null;
+      // Announce yourself as available server
+      socket.emit('announceServer', { name: "Server " + clientId.substr(0,5) });
 
-  const myPeerIdDisplay = document.getElementById('myPeerId');
-  const connectToIdInput = document.getElementById('connectToId');
-  const connectBtn = document.getElementById('connectBtn');
-  const connStatus = document.getElementById('connStatus');
-
-  function setupPeer() {
-    peer = new Peer();
-
-    peer.on('open', id => {
-      myPeerIdDisplay.textContent = id;
-      connStatus.textContent = 'Waiting for connection...';
+      // Request list of servers
+      socket.emit('listServers');
     });
 
-    peer.on('connection', connection => {
-      conn = connection;
-      setupConnection();
+    // Receive servers list
+    socket.on('serversList', (servers) => {
+      console.log("Received servers list:", servers);
+      updateServerListUI(servers);
+
+      // Auto join first server if none joined after 5 seconds
+      if(!joinedServer && Object.keys(servers).length > 0) {
+        setTimeout(() => {
+          if(!joinedServer) joinServer(Object.keys(servers)[0]);
+        }, 5000);
+      }
     });
-  }
 
-  function setupConnection() {
-    connStatus.textContent = 'Connected to ' + conn.peer;
+    // When server join accepted
+    socket.on('joinedServer', (roomId) => {
+      console.log("Joined server:", roomId);
+      document.getElementById("status").textContent = "Joined server: " + roomId;
+    });
 
-    if (!remotePlayer) {
-      remotePlayer = createRemotePlayerMesh();
-    }
-
-    conn.on('data', data => {
-      if (data.type === 'update') {
-        // Update remote player position & rotation
-        if (remotePlayer) {
-          remotePlayer.position.fromArray(data.position);
-          remotePlayer.rotation.fromArray(data.rotation);
+    // Receive update about other players' positions
+    socket.on('playerUpdate', (playersData) => {
+      for(let id in playersData) {
+        if(id === clientId) continue;
+        let p = playersData[id];
+        if(!players[id]) {
+          players[id] = {
+            mesh: createPlayerMesh(0x00ffff),
+          };
+        }
+        players[id].mesh.position.set(p.x, p.y, p.z);
+        players[id].mesh.rotation.y = p.rotY;
+      }
+      // Remove disconnected players
+      for(let id in players) {
+        if(!playersData[id]) {
+          scene.remove(players[id].mesh);
+          delete players[id];
         }
       }
-      else if (data.type === 'shoot') {
-        shootBullet(new THREE.Vector3().fromArray(data.position), new THREE.Vector3().fromArray(data.direction), true);
-      }
-    });
-
-    conn.on('close', () => {
-      connStatus.textContent = 'Connection closed';
-      if (remotePlayer) {
-        scene.remove(remotePlayer);
-        remotePlayer = null;
-      }
     });
   }
 
-  connectBtn.onclick = () => {
-    if (!peer) return alert('Peer not initialized yet.');
-    const otherId = connectToIdInput.value.trim();
-    if (!otherId) return alert('Enter a Peer ID to connect.');
+  // Send own position update every 50ms
+  setInterval(() => {
+    if(socket && joinedServer) {
+      const pos = controls.getObject().position;
+      socket.emit('updatePosition', {
+        roomId: joinedServer,
+        x: pos.x,
+        y: pos.y,
+        z: pos.z,
+        rotY: camera.rotation.y,
+      });
+    }
+  }, 50);
 
-    conn = peer.connect(otherId);
-    conn.on('open', () => {
-      setupConnection();
-    });
-  };
-
-  setupPeer();
-
-  // Game loop
+  // === Game loop ===
   function animate() {
     requestAnimationFrame(animate);
 
@@ -223,49 +307,32 @@
     if (keys['KeyS']) direction.z += 1;
     if (keys['KeyA']) direction.x -= 1;
     if (keys['KeyD']) direction.x += 1;
-
     direction.normalize().applyQuaternion(camera.quaternion);
     direction.y = 0;
 
-    let speed = 0.2;
+    let speed = speedCheckbox.checked ? 0.6 : 0.2;
     let nextPos = controls.getObject().position.clone().add(direction.multiplyScalar(speed));
     if (!collides(nextPos)) controls.getObject().position.copy(nextPos);
 
-    controls.getObject().position.y -= 0.2; // gravity
-    if (controls.getObject().position.y < 1.6) controls.getObject().position.y = 1.6;
-
-    // Send local player position & rotation to remote
-    if (conn && conn.open) {
-      const pos = controls.getObject().position.toArray();
-      const rot = [camera.rotation.x, camera.rotation.y, camera.rotation.z];
-      conn.send({type:'update', position: pos, rotation: rot});
+    if (!flyCheckbox.checked) {
+      controls.getObject().position.y -= 0.2;
+      if (controls.getObject().position.y < 1.6) controls.getObject().position.y = 1.6;
     }
 
-    // Update bullets
-    bullets.forEach((b, i) => {
-      b.position.add(b.userData.velocity);
-      // Remove bullets out of bounds
-      if (b.position.length() > 500) {
-        scene.remove(b);
-        bullets.splice(i, 1);
-      }
-    });
-    remoteBullets.forEach((b, i) => {
-      b.position.add(b.userData.velocity);
-      if (b.position.length() > 500) {
-        scene.remove(b);
-        remoteBullets.splice(i, 1);
-      }
-    });
+    // Health display update
+    healthDisplay.textContent = Math.floor(health);
 
+    // Render
     renderer.render(scene, camera);
   }
 
+  // Initialize multiplayer connection
+  initMultiplayer();
   animate();
 
-  // Resize handling
+  // Handle window resize
   window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
