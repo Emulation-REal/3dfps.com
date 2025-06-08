@@ -2,18 +2,23 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>3D FPS with Mods</title>
+  <title>3D FPS Game with Mods</title>
   <style>
     body { margin: 0; overflow: hidden; }
-    #hud {
+    canvas { display: block; }
+
+    #hud, #crosshair {
       position: absolute;
-      top: 10px;
-      left: 10px;
-      color: white;
       font-family: sans-serif;
-      font-size: 18px;
+      color: white;
       z-index: 10;
     }
+
+    #hud {
+      top: 10px; left: 10px;
+      font-size: 18px;
+    }
+
     #modMenu {
       position: absolute;
       top: 50px;
@@ -26,21 +31,34 @@
       display: none;
       z-index: 20;
     }
+
     #modMenu label {
       display: block;
       margin-bottom: 5px;
     }
-    canvas { display: block; }
+
+    #crosshair {
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 12px;
+      pointer-events: none;
+      z-index: 20;
+    }
   </style>
 </head>
 <body>
 <div id="hud">Health: <span id="health">100</span></div>
 <div id="modMenu">
   <h3>Mod Menu</h3>
-  <label><input type="checkbox" id="esp"> ESP (Enemy Boxes)</label>
+  <label><input type="checkbox" id="esp"> ESP</label>
   <label><input type="checkbox" id="tracers"> Tracers</label>
   <label><input type="checkbox" id="aimbot"> Aimbot (Hold Right Mouse)</label>
+  <label><input type="checkbox" id="fly"> Fly Mode</label>
+  <label><input type="checkbox" id="god"> God Mode</label>
+  <label><input type="checkbox" id="speed"> Speed Hack</label>
 </div>
+<div id="crosshair">+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.125.2/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.125.2/examples/js/controls/PointerLockControls.js"></script>
@@ -58,38 +76,53 @@
   });
   scene.add(controls.getObject());
 
-  // UI
-  const healthDisplay = document.getElementById("health");
-  const espCheckbox = document.getElementById("esp");
-  const tracersCheckbox = document.getElementById("tracers");
-  const aimbotCheckbox = document.getElementById("aimbot");
+  let health = 100;
+  let isAiming = false;
   let modMenuVisible = false;
+
   document.addEventListener('keydown', e => {
     if (e.key === ';') {
       modMenuVisible = !modMenuVisible;
       document.getElementById("modMenu").style.display = modMenuVisible ? "block" : "none";
-      if (modMenuVisible) {
-        controls.unlock();
-      } else {
-        controls.lock();
-      }
+      if (modMenuVisible) controls.unlock();
+      else controls.lock();
     }
   });
 
-  // Light & Floor
+  document.addEventListener('mousedown', e => {
+    if (e.button === 2) isAiming = true;
+  });
+  document.addEventListener('mouseup', e => {
+    if (e.button === 2) isAiming = false;
+  });
+
+  const healthDisplay = document.getElementById("health");
+  const espCheckbox = document.getElementById("esp");
+  const tracersCheckbox = document.getElementById("tracers");
+  const aimbotCheckbox = document.getElementById("aimbot");
+  const flyCheckbox = document.getElementById("fly");
+  const godCheckbox = document.getElementById("god");
+  const speedCheckbox = document.getElementById("speed");
+
+  // Lights
   scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: 0x333333 }));
+
+  // Ground
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(200, 200),
+    new THREE.MeshStandardMaterial({ color: 0x333333 })
+  );
   floor.rotation.x = -Math.PI / 2;
   scene.add(floor);
 
   // Obstacles
   const obstacles = [];
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 15; i++) {
     const o = new THREE.Mesh(
-      new THREE.BoxGeometry(5, 4, 2),
+      new THREE.BoxGeometry(5, 6, 2),
       new THREE.MeshStandardMaterial({ color: 0x888888 })
     );
-    o.position.set((Math.random() - 0.5) * 100, 2, (Math.random() - 0.5) * 100);
+    o.position.set((Math.random() - 0.5) * 100, 3, (Math.random() - 0.5) * 100);
     scene.add(o);
     obstacles.push(o);
   }
@@ -100,9 +133,6 @@
   document.addEventListener('keydown', e => keys[e.code] = true);
   document.addEventListener('keyup', e => keys[e.code] = false);
   const direction = new THREE.Vector3();
-
-  let health = 100;
-  let onGround = false;
 
   // Enemies
   let enemies = [];
@@ -117,7 +147,7 @@
     enemies.push(e);
   }
 
-  for (let i = 0; i < 5; i++) spawnEnemy();
+  for (let i = 0; i < 20; i++) spawnEnemy();
 
   // Bullets
   const bullets = [];
@@ -135,16 +165,18 @@
     scene.add(b);
   });
 
-  // Aimbot Control
-  let isAiming = false;
-  document.addEventListener("mousedown", e => {
-    if (e.button === 2) isAiming = true;
-  });
-  document.addEventListener("mouseup", e => {
-    if (e.button === 2) isAiming = false;
-  });
+  const overlay = document.createElement('canvas');
+  overlay.width = window.innerWidth;
+  overlay.height = window.innerHeight;
+  overlay.style.position = 'absolute';
+  overlay.style.top = '0';
+  overlay.style.left = '0';
+  overlay.style.pointerEvents = 'none';
+  overlay.style.zIndex = 15;
+  document.body.appendChild(overlay);
+  const ctx = overlay.getContext('2d');
 
-  // Movement helpers
+  // Collision check
   function collides(pos) {
     for (let o of obstacles) {
       const dx = Math.abs(pos.x - o.position.x);
@@ -154,22 +186,10 @@
     return false;
   }
 
-  // ESP + Tracer canvas
-  const overlay = document.createElement('canvas');
-  overlay.style.position = 'absolute';
-  overlay.style.top = '0';
-  overlay.style.left = '0';
-  overlay.style.pointerEvents = 'none';
-  overlay.width = window.innerWidth;
-  overlay.height = window.innerHeight;
-  overlay.style.zIndex = 15;
-  document.body.appendChild(overlay);
-  const overlayCtx = overlay.getContext('2d');
-
-  // Game Loop
+  // Game loop
   function animate() {
     requestAnimationFrame(animate);
-    overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+    ctx.clearRect(0, 0, overlay.width, overlay.height);
 
     // Movement
     direction.set(0, 0, 0);
@@ -180,64 +200,59 @@
 
     direction.normalize().applyQuaternion(camera.quaternion);
     direction.y = 0;
-    const nextPos = controls.getObject().position.clone().add(direction.multiplyScalar(0.2));
+
+    let speed = speedCheckbox.checked ? 0.6 : 0.2;
+    let nextPos = controls.getObject().position.clone().add(direction.multiplyScalar(speed));
     if (!collides(nextPos)) controls.getObject().position.copy(nextPos);
 
-    // Gravity
-    if (!onGround) {
+    if (!flyCheckbox.checked) {
       controls.getObject().position.y -= 0.2;
-      if (controls.getObject().position.y <= 1.6) {
-        controls.getObject().position.y = 1.6;
-        onGround = true;
-      }
+      if (controls.getObject().position.y < 1.6) controls.getObject().position.y = 1.6;
     }
 
     // Enemies
-    let closestEnemy = null;
-    let closestDistance = Infinity;
-    enemies.forEach((e, idx) => {
+    let closest = null, closestDist = Infinity;
+    enemies.forEach((e, i) => {
       if (!e.userData) return;
-      const dist = e.position.distanceTo(controls.getObject().position);
-      if (dist > 1) {
-        const dir = new THREE.Vector3().subVectors(controls.getObject().position, e.position).normalize();
-        e.position.addScaledVector(dir, 0.03);
-      } else {
+
+      const dist = e.position.distanceTo(camera.position);
+      if (dist < 1 && !godCheckbox.checked) {
         health -= 0.2;
         health = Math.max(0, health);
         healthDisplay.textContent = Math.floor(health);
+      } else {
+        const dir = new THREE.Vector3().subVectors(camera.position, e.position).normalize();
+        e.position.addScaledVector(dir, 0.03);
       }
 
-      // Aimbot
-      const screenPos = e.position.clone().project(camera);
-      if (screenPos.z > 1 || screenPos.z < 0) return;
-      const enemyDistance = e.position.distanceTo(camera.position);
-      if (enemyDistance < closestDistance) {
-        closestDistance = enemyDistance;
-        closestEnemy = e;
-      }
-
-      // ESP + Tracers
-      const x = (screenPos.x * 0.5 + 0.5) * overlay.width;
-      const y = (-screenPos.y * 0.5 + 0.5) * overlay.height;
+      const screen = e.position.clone().project(camera);
       if (espCheckbox.checked) {
-        overlayCtx.strokeStyle = 'lime';
-        overlayCtx.strokeRect(x - 20, y - 40, 40, 80);
+        let x = (screen.x * 0.5 + 0.5) * overlay.width;
+        let y = (-screen.y * 0.5 + 0.5) * overlay.height;
+        ctx.strokeStyle = 'lime';
+        ctx.strokeRect(x - 5, y - 10, 10, 20);
       }
       if (tracersCheckbox.checked) {
-        overlayCtx.strokeStyle = 'red';
-        overlayCtx.beginPath();
-        overlayCtx.moveTo(overlay.width / 2, overlay.height / 2);
-        overlayCtx.lineTo(x, y);
-        overlayCtx.stroke();
+        let x = (screen.x * 0.5 + 0.5) * overlay.width;
+        let y = (-screen.y * 0.5 + 0.5) * overlay.height;
+        ctx.strokeStyle = 'red';
+        ctx.beginPath();
+        ctx.moveTo(overlay.width / 2, overlay.height / 2);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+      }
+
+      if (dist < closestDist) {
+        closest = e;
+        closestDist = dist;
       }
     });
 
-    if (aimbotCheckbox.checked && isAiming && closestEnemy) {
-      const dir = new THREE.Vector3().subVectors(closestEnemy.position, camera.position).normalize();
-      camera.lookAt(closestEnemy.position);
+    if (aimbotCheckbox.checked && isAiming && closest) {
+      camera.lookAt(closest.position);
     }
 
-    // Bullet handling
+    // Bullets
     bullets.forEach((b, i) => {
       b.position.add(b.userData.velocity);
       enemies.forEach((e, j) => {
@@ -260,7 +275,7 @@
   animate();
 
   window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
     overlay.width = window.innerWidth;
