@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Multiplayer FPS Game</title>
+  <title>Multiplayer FPS Game – Color-Enhanced Map</title>
   <style>
     body { margin: 0; overflow: hidden; }
     canvas { display: block; }
@@ -53,14 +53,14 @@
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.4.7/dist/peerjs.min.js"></script>
 
   <script>
-    // === Basic Setup ===
-    let scene = new THREE.Scene();
-    let camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-    let renderer = new THREE.WebGLRenderer();
+    // === Initialization ===
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer();
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
 
-    let controls = new THREE.PointerLockControls(camera, document.body);
+    const controls = new THREE.PointerLockControls(camera, document.body);
     document.body.addEventListener('click', () => controls.lock());
     scene.add(controls.getObject());
 
@@ -69,76 +69,84 @@
     const healthDisplay = document.getElementById("health");
     const statusDisplay = document.getElementById("status");
     const playerListDisplay = document.getElementById("playerList");
-
     const keys = {};
+
     document.addEventListener('keydown', e => keys[e.code] = true);
     document.addEventListener('keyup', e => keys[e.code] = false);
 
     scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
 
-    // Floor
-    let floor = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: 0x222 }));
+    // === Enhanced Map Colors ===
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(200, 200),
+      new THREE.MeshStandardMaterial({ color: 0x888877 })
+    );
     floor.rotation.x = -Math.PI / 2;
     scene.add(floor);
 
-    // Obstacles
+    const containerColors = [0x0055ff, 0xff3333, 0x33cc33, 0xffff33];
     const obstacles = [];
     for (let i = 0; i < 15; i++) {
-      let box = new THREE.Mesh(new THREE.BoxGeometry(5, 6, 2), new THREE.MeshStandardMaterial({ color: 0x777 }));
-      box.position.set((Math.random()-0.5)*100, 3, (Math.random()-0.5)*100);
+      const color = containerColors[i % containerColors.length];
+      const box = new THREE.Mesh(
+        new THREE.BoxGeometry(5, 6, 2),
+        new THREE.MeshStandardMaterial({ color })
+      );
+      box.position.set((Math.random() - 0.5) * 100, 3, (Math.random() - 0.5) * 100);
       scene.add(box);
       obstacles.push(box);
     }
 
     function collides(pos) {
       for (let o of obstacles) {
-        let dx = Math.abs(pos.x - o.position.x);
-        let dz = Math.abs(pos.z - o.position.z);
-        if (dx < 3 && dz < 3) return true;
+        if (Math.abs(pos.x - o.position.x) < 3
+         && Math.abs(pos.z - o.position.z) < 3) return true;
       }
       return false;
     }
 
     camera.position.set(0, 1.6, 0);
 
-    // === Multiplayer ===
+    // === Multiplayer Setup ===
     const ROOM_ID = "shared-room";
     let peer, isHost = false;
-    let connections = {};
+    const connections = {};
     const remotePlayers = {};
 
-    function createRemoteMesh(color=0x00f) {
-      return new THREE.Mesh(new THREE.BoxGeometry(1, 2, 1), new THREE.MeshStandardMaterial({ color }));
+    function updatePlayerList() {
+      let html = "Players:<br/>You<br/>";
+      for (const id in remotePlayers) html += id + "<br/>";
+      playerListDisplay.innerHTML = html;
     }
 
-    function updatePlayerList() {
-      let list = "Players:<br/>";
-      list += "You<br/>";
-      for (let id in remotePlayers) list += id + "<br/>";
-      playerListDisplay.innerHTML = list;
+    function createRemoteMesh() {
+      return new THREE.Mesh(
+        new THREE.BoxGeometry(1, 2, 1),
+        new THREE.MeshStandardMaterial({ color: 0x0000ff })
+      );
     }
 
     function setupConnection(conn) {
       connections[conn.peer] = conn;
+
       conn.on('data', data => {
         if (data.type === 'position') {
           if (!remotePlayers[conn.peer]) {
-            let mesh = createRemoteMesh();
+            const mesh = createRemoteMesh();
             scene.add(mesh);
-            remotePlayers[conn.peer] = { mesh, lastUpdate: Date.now(), health: 100 };
+            remotePlayers[conn.peer] = { mesh, health: 100 };
             updatePlayerList();
           }
-          let rp = remotePlayers[conn.peer];
-          rp.mesh.position.set(data.x, data.y, data.z);
-          rp.lastUpdate = Date.now();
+          remotePlayers[conn.peer].mesh.position.set(data.x, data.y, data.z);
         }
-        if (data.type === 'hit') {
+        else if (data.type === 'hit') {
           if (!isDead) {
             health -= 25;
             if (health <= 0) dieAndRespawn();
           }
         }
       });
+
       conn.on('close', () => {
         if (remotePlayers[conn.peer]) {
           scene.remove(remotePlayers[conn.peer].mesh);
@@ -149,34 +157,37 @@
       });
     }
 
-    function startPeer() {
+    function startPeerAsHost() {
       peer = new Peer(ROOM_ID, { debug: 1 });
-      peer.on('open', id => {
+      peer.on('open', () => {
         statusDisplay.textContent = "Connected as Host";
         isHost = true;
       });
       peer.on('connection', conn => setupConnection(conn));
       peer.on('error', err => {
-        if (err.type === 'unavailable-id') startClient();
+        if (err.type === 'unavailable-id') startPeerAsClient();
       });
     }
 
-    function startClient() {
-      peer = new Peer();
-      peer.on('open', id => {
+    function startPeerAsClient() {
+      peer = new Peer({ debug: 1 });
+      peer.on('open', () => {
         statusDisplay.textContent = "Connected as Client";
-        let conn = peer.connect(ROOM_ID);
+        const conn = peer.connect(ROOM_ID);
         conn.on('open', () => setupConnection(conn));
       });
     }
 
-    startPeer();
+    startPeerAsHost();
 
     // === Shooting ===
     const bullets = [];
     document.addEventListener('click', () => {
       if (isDead) return;
-      let bullet = new THREE.Mesh(new THREE.SphereGeometry(0.1), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
+      const bullet = new THREE.Mesh(
+        new THREE.SphereGeometry(0.1),
+        new THREE.MeshBasicMaterial({ color: 0xff0000 })
+      );
       bullet.position.copy(camera.position);
       bullet.direction = camera.getWorldDirection(new THREE.Vector3()).clone();
       scene.add(bullet);
@@ -184,10 +195,9 @@
     });
 
     function checkBulletHit(bullet) {
-      for (let id in remotePlayers) {
-        let player = remotePlayers[id];
-        let dist = bullet.position.distanceTo(player.mesh.position);
-        if (dist < 1.5) {
+      for (const id in remotePlayers) {
+        const player = remotePlayers[id];
+        if (bullet.position.distanceTo(player.mesh.position) < 1.5) {
           connections[id]?.send({ type: 'hit' });
           return true;
         }
@@ -195,65 +205,57 @@
       return false;
     }
 
-    // === Death + Respawn ===
+    // === Death & Respawn ===
     function dieAndRespawn() {
       isDead = true;
       health = 0;
       healthDisplay.textContent = "DEAD";
-      controls.getObject().position.set(999, -999, 999); // hide
+      controls.getObject().position.set(999, 999, 999);
+
       setTimeout(() => {
         isDead = false;
         health = 100;
         healthDisplay.textContent = health;
-        controls.getObject().position.set(Math.random()*20-10, 1.6, Math.random()*20-10);
+        controls.getObject().position.set(Math.random() * 20 - 10, 1.6, Math.random() * 20 - 10);
       }, 3000);
     }
 
-    // === Game Loop ===
-    const direction = new THREE.Vector3();
+    // === Main Loop ===
+    const dirVec = new THREE.Vector3();
 
     function animate() {
       requestAnimationFrame(animate);
 
       if (!isDead) {
-        direction.set(0, 0, 0);
-        if (keys["KeyW"]) direction.z -= 1;
-        if (keys["KeyS"]) direction.z += 1;
-        if (keys["KeyA"]) direction.x -= 1;
-        if (keys["KeyD"]) direction.x += 1;
-        direction.normalize().applyQuaternion(camera.quaternion);
-        direction.y = 0;
+        dirVec.set(0, 0, 0);
+        if (keys.KeyW) dirVec.z -= 1;
+        if (keys.KeyS) dirVec.z += 1;
+        if (keys.KeyA) dirVec.x -= 1;
+        if (keys.KeyD) dirVec.x += 1;
+        dirVec.normalize().applyQuaternion(camera.quaternion);
+        dirVec.y = 0;
 
-        let speed = 0.2;
-        let next = controls.getObject().position.clone().add(direction.multiplyScalar(speed));
-        if (!collides(next)) controls.getObject().position.copy(next);
+        const nextPos = controls.getObject().position.clone().add(dirVec.multiplyScalar(0.2));
+        if (!collides(nextPos)) controls.getObject().position.copy(nextPos);
 
-        // Send position
-        for (let id in connections) {
-          if (connections[id].open) {
-            connections[id].send({
-              type: "position",
-              x: camera.position.x,
-              y: camera.position.y,
-              z: camera.position.z
-            });
+        for (const id in connections) {
+          const conn = connections[id];
+          if (conn.open) {
+            const p = controls.getObject().position;
+            conn.send({ type: 'position', x: p.x, y: p.y, z: p.z });
           }
         }
       }
 
-      // Move bullets
-      for (let i = bullets.length - 1; i >= 0; i--) {
-        let b = bullets[i];
+      bullets.forEach((b, i) => {
         b.position.add(b.direction.clone().multiplyScalar(0.5));
         if (checkBulletHit(b)) {
-          scene.remove(b);
-          bullets.splice(i, 1);
+          scene.remove(b); bullets.splice(i, 1);
         }
-        if (b.position.length() > 500) {
-          scene.remove(b);
-          bullets.splice(i, 1);
+        else if (b.position.length() > 200) {
+          scene.remove(b); bullets.splice(i, 1);
         }
-      }
+      });
 
       healthDisplay.textContent = isDead ? "DEAD" : Math.floor(health);
       renderer.render(scene, camera);
@@ -261,7 +263,7 @@
 
     animate();
 
-    window.addEventListener("resize", () => {
+    window.addEventListener('resize', () => {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
