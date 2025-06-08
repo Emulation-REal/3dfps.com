@@ -1,458 +1,262 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<title>Simple FPS with Aimbot, ESP & Tracers</title>
-<style>
-  body, html {
-    margin: 0; padding: 0; overflow: hidden;
-    height: 100%; background-color: #222;
-    font-family: Arial, sans-serif;
-    color: white;
-  }
-  #modMenu {
-    position: fixed;
-    top: 10px; right: 10px;
-    background: rgba(0,0,0,0.7);
-    padding: 10px;
-    border-radius: 6px;
-    font-size: 14px;
-    z-index: 1000;
-  }
-  #modMenu label {
-    display: block;
-    margin-bottom: 6px;
-    cursor: pointer;
-  }
-  #crosshair {
-    position: fixed;
-    left: 50%; top: 50%;
-    width: 20px; height: 20px;
-    margin-left: -10px; margin-top: -10px;
-    pointer-events: none;
-    z-index: 1000;
-  }
-  #crosshair:before, #crosshair:after {
-    content: '';
-    position: absolute;
-    background: cyan;
-  }
-  #crosshair:before {
-    left: 9px; top: 0;
-    width: 2px; height: 20px;
-  }
-  #crosshair:after {
-    top: 9px; left: 0;
-    width: 20px; height: 2px;
-  }
-  .nameTag {
-    position: absolute;
-    color: cyan;
-    font-size: 12px;
-    text-align: center;
-    pointer-events: none;
-    user-select: none;
-    text-shadow: 0 0 5px black;
-  }
-  .healthBar {
-    position: absolute;
-    height: 4px;
-    background: limegreen;
-    border-radius: 2px;
-    pointer-events: none;
-  }
-</style>
+  <meta charset="UTF-8" />
+  <title>3D FPS Game with PeerJS Multiplayer</title>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    canvas { display: block; }
+    #hud, #crosshair {
+      position: absolute;
+      font-family: sans-serif;
+      color: white;
+      z-index: 10;
+    }
+    #hud {
+      top: 10px; left: 10px;
+      font-size: 18px;
+    }
+    #peerControls {
+      position: absolute;
+      top: 10px; right: 10px;
+      background: rgba(0,0,0,0.7);
+      padding: 10px;
+      color: white;
+      font-family: sans-serif;
+      z-index: 30;
+    }
+    #crosshair {
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 12px;
+      pointer-events: none;
+      z-index: 20;
+    }
+  </style>
 </head>
 <body>
-<div id="modMenu">
-  <label><input type="checkbox" id="modAimbot" /> Aimbot (hold right mouse)</label>
-  <label><input type="checkbox" id="modEsp" checked /> ESP (boxes & nametags)</label>
-  <label><input type="checkbox" id="modTracers" checked /> Tracers</label>
-  <div style="font-size:12px; margin-top:6px; color:#aaa;">Press right mouse button for aimbot</div>
+<div id="hud">Health: <span id="health">100</span></div>
+<div id="peerControls">
+  <div>Your Peer ID: <span id="myPeerId">...</span></div>
+  <input type="text" id="connectToId" placeholder="Other Peer ID" />
+  <button id="connectBtn">Connect</button>
+  <div>Status: <span id="connStatus">Not connected</span></div>
 </div>
-<div id="crosshair"></div>
+<div id="crosshair">+</div>
 
-<script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.152.2/examples/js/controls/PointerLockControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.125.2/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.125.2/examples/js/controls/PointerLockControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.4.7/dist/peerjs.min.js"></script>
 
 <script>
-(() => {
-  // Setup scene
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x111111);
-
-  // Camera & Renderer
-  const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-  const renderer = new THREE.WebGLRenderer({antialias:true});
+  // Basic setup (your original code mostly)
+  let scene = new THREE.Scene();
+  let camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+  let renderer = new THREE.WebGLRenderer();
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
 
-  // Controls (pointer lock)
-  const controls = new THREE.PointerLockControls(camera, document.body);
-  document.body.addEventListener('click', () => {
-    if (!controls.isLocked) controls.lock();
-  });
+  let controls = new THREE.PointerLockControls(camera, document.body);
+  document.body.addEventListener('click', () => controls.lock());
+  scene.add(controls.getObject());
+
+  let health = 100;
+  const healthDisplay = document.getElementById("health");
+  healthDisplay.textContent = health;
 
   // Ground
-  const groundGeometry = new THREE.PlaneGeometry(200, 200);
-  const groundMaterial = new THREE.MeshPhongMaterial({color:0x222222});
-  const ground = new THREE.Mesh(groundGeometry, groundMaterial);
-  ground.rotation.x = -Math.PI/2;
-  scene.add(ground);
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(200, 200),
+    new THREE.MeshStandardMaterial({ color: 0x333333 })
+  );
+  floor.rotation.x = -Math.PI / 2;
+  scene.add(floor);
+
+  // Obstacles
+  const obstacles = [];
+  for (let i = 0; i < 15; i++) {
+    const o = new THREE.Mesh(
+      new THREE.BoxGeometry(5, 6, 2),
+      new THREE.MeshStandardMaterial({ color: 0x888888 })
+    );
+    o.position.set((Math.random() - 0.5) * 100, 3, (Math.random() - 0.5) * 100);
+    scene.add(o);
+    obstacles.push(o);
+  }
+
+  // Local player variables
+  const keys = {};
+  document.addEventListener('keydown', e => keys[e.code] = true);
+  document.addEventListener('keyup', e => keys[e.code] = false);
+
+  // Movement direction vector
+  const direction = new THREE.Vector3();
+
+  // Bullets local & remote
+  const bullets = [];
+  const remoteBullets = [];
+
+  // Remote player data
+  let remotePlayer = null;
+
+  // Create a simple mesh for remote player
+  function createRemotePlayerMesh() {
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 2, 1),
+      new THREE.MeshStandardMaterial({ color: 0x0000ff })
+    );
+    mesh.position.set(0,1,0);
+    scene.add(mesh);
+    return mesh;
+  }
 
   // Lights
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
-  scene.add(ambientLight);
-  const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-  dirLight.position.set(5,10,7);
-  scene.add(dirLight);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
 
-  // Player variables
-  const velocity = new THREE.Vector3();
-  let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
-  const speed = 0.4; // Increased speed here
-  let canJump = false;
-  let playerHeight = 1.7;
-
-  // Player collider box (simple)
-  const playerBox = new THREE.Box3();
-
-  // Set initial position
-  controls.getObject().position.set(0, playerHeight, 0);
-
-  // Obstacles for collisions
-  const obstacles = [];
-
-  // Create some obstacles (boxes)
-  function createBox(x,z) {
-    const geom = new THREE.BoxGeometry(2,2,2);
-    const mat = new THREE.MeshPhongMaterial({color: 0x555555});
-    const box = new THREE.Mesh(geom, mat);
-    box.position.set(x, 1, z);
-    scene.add(box);
-    obstacles.push(box);
-  }
-  createBox(5,5);
-  createBox(-5,10);
-  createBox(10,-5);
-  createBox(-8,-8);
-
-  // Enemies
-  class Enemy {
-    constructor(name, position) {
-      this.name = name;
-      const geom = new THREE.BoxGeometry(1, 2, 1);
-      const mat = new THREE.MeshBasicMaterial({color: 0xff0000, wireframe: false});
-      this.mesh = new THREE.Mesh(geom, mat);
-      this.mesh.position.copy(position);
-      scene.add(this.mesh);
-
-      // Name tag DOM element
-      this.nameTagDiv = document.createElement('div');
-      this.nameTagDiv.className = 'nameTag';
-      this.nameTagDiv.textContent = name;
-      document.body.appendChild(this.nameTagDiv);
-
-      // Health bar
-      this.health = 100;
-      this.healthBarDiv = document.createElement('div');
-      this.healthBarDiv.className = 'healthBar';
-      document.body.appendChild(this.healthBarDiv);
+  // Collision check function (same as before)
+  function collides(pos) {
+    for (let o of obstacles) {
+      const dx = Math.abs(pos.x - o.position.x);
+      const dz = Math.abs(pos.z - o.position.z);
+      if (dx < 3 && dz < 3) return true;
     }
-
-    updateNameTag(camera) {
-      const pos = this.mesh.position.clone();
-      pos.y += 2.5;
-      const vector = pos.project(camera);
-
-      const x = (vector.x * 0.5 + 0.5) * window.innerWidth;
-      const y = ( - vector.y * 0.5 + 0.5) * window.innerHeight;
-
-      this.nameTagDiv.style.left = `${x - this.nameTagDiv.clientWidth/2}px`;
-      this.nameTagDiv.style.top = `${y}px`;
-
-      this.healthBarDiv.style.left = `${x - 20}px`;
-      this.healthBarDiv.style.top = `${y + 15}px`;
-      this.healthBarDiv.style.width = `${40 * (this.health/100)}px`;
-    }
-
-    dispose() {
-      scene.remove(this.mesh);
-      document.body.removeChild(this.nameTagDiv);
-      document.body.removeChild(this.healthBarDiv);
-    }
+    return false;
   }
 
-  const enemies = [];
-  // Spawn some enemies randomly around
-  for(let i=0; i<6; i++){
-    const x = (Math.random()-0.5)*50;
-    const z = (Math.random()-0.5)*50;
-    enemies.push(new Enemy(`Enemy${i+1}`, new THREE.Vector3(x,1,z)));
+  // Shoot bullet function
+  function shootBullet(position, directionVec, isRemote = false) {
+    const b = new THREE.Mesh(
+      new THREE.SphereGeometry(0.1),
+      new THREE.MeshBasicMaterial({ color: isRemote ? 0x00ffff : 0xffff00 })
+    );
+    b.position.copy(position);
+    b.userData.velocity = directionVec.clone().multiplyScalar(1);
+    if (isRemote) remoteBullets.push(b);
+    else bullets.push(b);
+    scene.add(b);
   }
 
-  // Bullets
-  const bullets = [];
-  class Bullet {
-    constructor(origin, direction) {
-      const geom = new THREE.SphereGeometry(0.1,8,8);
-      const mat = new THREE.MeshBasicMaterial({color: 0xffff00});
-      this.mesh = new THREE.Mesh(geom, mat);
-      this.mesh.position.copy(origin);
-      scene.add(this.mesh);
-
-      this.direction = direction.clone();
-      this.speed = 1;
-      this.alive = true;
+  document.addEventListener("click", () => {
+    if (!controls.isLocked) return;
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    shootBullet(camera.position, dir, false);
+    // Send bullet shoot info to remote
+    if (conn && conn.open) {
+      conn.send({type: 'shoot', position: camera.position.toArray(), direction: dir.toArray()});
     }
-    update() {
-      this.mesh.position.add(this.direction.clone().multiplyScalar(this.speed));
-      // Check collisions with enemies
-      for(let enemy of enemies){
-        if(enemy.health <= 0) continue;
-        const dist = enemy.mesh.position.distanceTo(this.mesh.position);
-        if(dist < 1){
-          enemy.health -= 20;
-          if(enemy.health < 0) enemy.health = 0;
-          this.alive = false;
-          scene.remove(this.mesh);
-          break;
+  });
+
+  // --- PeerJS Multiplayer Setup ---
+  let peer = null;
+  let conn = null;
+
+  const myPeerIdDisplay = document.getElementById('myPeerId');
+  const connectToIdInput = document.getElementById('connectToId');
+  const connectBtn = document.getElementById('connectBtn');
+  const connStatus = document.getElementById('connStatus');
+
+  function setupPeer() {
+    peer = new Peer();
+
+    peer.on('open', id => {
+      myPeerIdDisplay.textContent = id;
+      connStatus.textContent = 'Waiting for connection...';
+    });
+
+    peer.on('connection', connection => {
+      conn = connection;
+      setupConnection();
+    });
+  }
+
+  function setupConnection() {
+    connStatus.textContent = 'Connected to ' + conn.peer;
+
+    if (!remotePlayer) {
+      remotePlayer = createRemotePlayerMesh();
+    }
+
+    conn.on('data', data => {
+      if (data.type === 'update') {
+        // Update remote player position & rotation
+        if (remotePlayer) {
+          remotePlayer.position.fromArray(data.position);
+          remotePlayer.rotation.fromArray(data.rotation);
         }
       }
-      // Remove if too far
-      if(this.mesh.position.distanceTo(controls.getObject().position) > 100){
-        this.alive = false;
-        scene.remove(this.mesh);
+      else if (data.type === 'shoot') {
+        shootBullet(new THREE.Vector3().fromArray(data.position), new THREE.Vector3().fromArray(data.direction), true);
       }
-    }
-  }
+    });
 
-  // Input handling
-  const keys = {};
-  document.addEventListener('keydown', (e) => {
-    keys[e.code] = true;
-    switch(e.code){
-      case 'KeyW': moveForward = true; break;
-      case 'KeyS': moveBackward = true; break;
-      case 'KeyA': moveLeft = true; break;
-      case 'KeyD': moveRight = true; break;
-      case 'Space':
-        if(canJump){
-          velocity.y = 0.2;
-          canJump = false;
-        }
-        break;
-    }
-  });
-  document.addEventListener('keyup', (e) => {
-    keys[e.code] = false;
-    switch(e.code){
-      case 'KeyW': moveForward = false; break;
-      case 'KeyS': moveBackward = false; break;
-      case 'KeyA': moveLeft = false; break;
-      case 'KeyD': moveRight = false; break;
-    }
-  });
-
-  // Shoot function
-  function shoot(){
-    const origin = controls.getObject().position.clone();
-    const direction = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion);
-    bullets.push(new Bullet(origin, direction));
-  }
-
-  window.addEventListener('mousedown', e => {
-    if(e.button === 0) shoot();
-  });
-
-  // Mods
-  const modAimbot = document.getElementById('modAimbot');
-  const modEsp = document.getElementById('modEsp');
-  const modTracers = document.getElementById('modTracers');
-
-  // Tracers group
-  const tracerGroup = new THREE.Group();
-  scene.add(tracerGroup);
-
-  // Aimbot right mouse hold
-  let rightMouseDown = false;
-  window.addEventListener('mousedown', e => {
-    if(e.button === 2) rightMouseDown = true;
-  });
-  window.addEventListener('mouseup', e => {
-    if(e.button === 2) rightMouseDown = false;
-  });
-  window.addEventListener('contextmenu', e => e.preventDefault());
-
-  // Find closest enemy to center crosshair
-  function getClosestEnemyToCrosshair(){
-    if(enemies.length === 0) return null;
-    let closest = null;
-    let closestAngle = 0.2; // roughly 11.5 degrees max for lock-on
-    const playerPos = controls.getObject().position;
-    const forward = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion).normalize();
-    for(let enemy of enemies){
-      if(enemy.health <= 0) continue;
-      const toEnemy = enemy.mesh.position.clone().sub(playerPos).normalize();
-      const angle = forward.angleTo(toEnemy);
-      if(angle < closestAngle){
-        closestAngle = angle;
-        closest = enemy;
+    conn.on('close', () => {
+      connStatus.textContent = 'Connection closed';
+      if (remotePlayer) {
+        scene.remove(remotePlayer);
+        remotePlayer = null;
       }
-    }
-    return closest;
+    });
   }
 
-  // ESP Boxes - using box helper
-  const espBoxes = new Map();
+  connectBtn.onclick = () => {
+    if (!peer) return alert('Peer not initialized yet.');
+    const otherId = connectToIdInput.value.trim();
+    if (!otherId) return alert('Enter a Peer ID to connect.');
 
-  function updateEspBoxes(){
-    for(let enemy of enemies){
-      if(!espBoxes.has(enemy)){
-        const box = new THREE.BoxHelper(enemy.mesh, 0x00ffff);
-        scene.add(box);
-        espBoxes.set(enemy, box);
-      }
-      if(enemy.health <= 0){
-        if(espBoxes.has(enemy)){
-          scene.remove(espBoxes.get(enemy));
-          espBoxes.delete(enemy);
-        }
-      }
-    }
-    for(let [enemy, box] of espBoxes){
-      box.update();
-    }
-  }
+    conn = peer.connect(otherId);
+    conn.on('open', () => {
+      setupConnection();
+    });
+  };
 
-  // Update Tracers
-  function updateTracers(){
-    // Clear old
-    while(tracerGroup.children.length) tracerGroup.remove(tracerGroup.children[0]);
+  setupPeer();
 
-    if(!modTracers.checked) return;
-
-    const material = new THREE.LineBasicMaterial({color: 0x00ffff});
-    const playerPos = controls.getObject().position.clone();
-
-    for(let enemy of enemies){
-      if(enemy.health <= 0) continue;
-      const points = [];
-      points.push(playerPos);
-      const pos = enemy.mesh.position.clone();
-      pos.y += 1;
-      points.push(pos);
-      const geometry = new THREE.BufferGeometry().setFromPoints(points);
-      const line = new THREE.Line(geometry, material);
-      tracerGroup.add(line);
-    }
-  }
-
-  // Update function
-  let prevTime = performance.now();
-  let playerHealth = 100;
-
-  function animate(){
+  // Game loop
+  function animate() {
     requestAnimationFrame(animate);
 
-    const time = performance.now();
-    const delta = (time - prevTime) / 1000;
-    prevTime = time;
+    // Movement
+    direction.set(0, 0, 0);
+    if (keys['KeyW']) direction.z -= 1;
+    if (keys['KeyS']) direction.z += 1;
+    if (keys['KeyA']) direction.x -= 1;
+    if (keys['KeyD']) direction.x += 1;
 
-    // Movement velocity damping and gravity
-    velocity.x -= velocity.x * 10.0 * delta;
-    velocity.z -= velocity.z * 10.0 * delta;
-    velocity.y -= 9.8 * 5.0 * delta; // gravity
+    direction.normalize().applyQuaternion(camera.quaternion);
+    direction.y = 0;
 
-    // Movement controls
-    let direction = new THREE.Vector3();
-    if(moveForward) direction.z -= 1;
-    if(moveBackward) direction.z += 1;
-    if(moveLeft) direction.x -= 1;
-    if(moveRight) direction.x += 1;
-    direction.normalize();
+    let speed = 0.2;
+    let nextPos = controls.getObject().position.clone().add(direction.multiplyScalar(speed));
+    if (!collides(nextPos)) controls.getObject().position.copy(nextPos);
 
-    if(direction.length() > 0){
-      velocity.x -= direction.x * speed;
-      velocity.z -= direction.z * speed;
-    }
+    controls.getObject().position.y -= 0.2; // gravity
+    if (controls.getObject().position.y < 1.6) controls.getObject().position.y = 1.6;
 
-    // Update position
-    controls.getObject().position.x += velocity.x * delta;
-    controls.getObject().position.y += velocity.y * delta;
-    controls.getObject().position.z += velocity.z * delta;
-
-    // Simple ground collision
-    if(controls.getObject().position.y < playerHeight){
-      velocity.y = 0;
-      controls.getObject().position.y = playerHeight;
-      canJump = true;
-    }
-
-    // Simple collision with obstacles
-    playerBox.setFromCenterAndSize(controls.getObject().position, new THREE.Vector3(1,playerHeight*2,1));
-    for(let obstacle of obstacles){
-      const obsBox = new THREE.Box3().setFromObject(obstacle);
-      if(playerBox.intersectsBox(obsBox)){
-        // Push player out on each axis
-        if(controls.getObject().position.x < obsBox.min.x) controls.getObject().position.x = obsBox.min.x - 0.6;
-        else if(controls.getObject().position.x > obsBox.max.x) controls.getObject().position.x = obsBox.max.x + 0.6;
-        if(controls.getObject().position.z < obsBox.min.z) controls.getObject().position.z = obsBox.min.z - 0.6;
-        else if(controls.getObject().position.z > obsBox.max.z) controls.getObject().position.z = obsBox.max.z + 0.6;
-      }
+    // Send local player position & rotation to remote
+    if (conn && conn.open) {
+      const pos = controls.getObject().position.toArray();
+      const rot = [camera.rotation.x, camera.rotation.y, camera.rotation.z];
+      conn.send({type:'update', position: pos, rotation: rot});
     }
 
     // Update bullets
-    for(let i = bullets.length-1; i>=0; i--){
-      bullets[i].update();
-      if(!bullets[i].alive) bullets.splice(i,1);
-    }
-
-    // Update ESP boxes & nametags if enabled
-    if(modEsp.checked){
-      updateEspBoxes();
-      enemies.forEach(enemy => {
-        enemy.nameTagDiv.style.display = 'block';
-        enemy.healthBarDiv.style.display = 'block';
-        enemy.updateNameTag(camera);
-      });
-    } else {
-      enemies.forEach(enemy => {
-        enemy.nameTagDiv.style.display = 'none';
-        enemy.healthBarDiv.style.display = 'none';
-      });
-      for(let [enemy, box] of espBoxes){
-        scene.remove(box);
+    bullets.forEach((b, i) => {
+      b.position.add(b.userData.velocity);
+      // Remove bullets out of bounds
+      if (b.position.length() > 500) {
+        scene.remove(b);
+        bullets.splice(i, 1);
       }
-      espBoxes.clear();
-    }
-
-    // Update tracers if enabled
-    updateTracers();
-
-    // Aimbot
-    if(modAimbot.checked && rightMouseDown){
-      const target = getClosestEnemyToCrosshair();
-      if(target && target.health > 0){
-        const targetPos = target.mesh.position.clone();
-        targetPos.y += 1.5; // aim near head
-        const dir = targetPos.clone().sub(controls.getObject().position).normalize();
-
-        // Smooth rotate camera toward target direction
-        const currentDir = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion);
-        const lerpDir = currentDir.lerp(dir, 0.15).normalize();
-
-        // Calculate pitch and yaw
-        const pitch = Math.asin(lerpDir.y);
-        const yaw = Math.atan2(lerpDir.x, -lerpDir.z);
-
-        controls.getObject().rotation.y = yaw;
-        camera.rotation.x = pitch;
-
-        // Auto shoot
-        shoot();
+    });
+    remoteBullets.forEach((b, i) => {
+      b.position.add(b.userData.velocity);
+      if (b.position.length() > 500) {
+        scene.remove(b);
+        remoteBullets.splice(i, 1);
       }
-    }
+    });
 
     renderer.render(scene, camera);
   }
@@ -465,8 +269,6 @@
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
-
-})();
 </script>
 </body>
 </html>
