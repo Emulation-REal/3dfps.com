@@ -6,13 +6,11 @@
   <style>
     body { margin: 0; overflow: hidden; }
     canvas { display: block; }
-
-    #hud, #crosshair, #status, #playerList, #chatMessages, #chatInputWrapper {
+    #hud, #crosshair, #status, #playerList, #chat, #chatInput {
       position: absolute;
       font-family: sans-serif;
       z-index: 10;
     }
-
     #hud {
       top: 10px; left: 10px;
       font-size: 16px;
@@ -42,34 +40,29 @@
       border-radius: 6px;
       max-width: 150px;
     }
-
-    #chatMessages {
-      bottom: 60px; left: 10px;
-      max-width: 300px;
-      max-height: 200px;
-      overflow-y: auto;
-      background: rgba(0,0,0,0.6);
-      color: white;
-      font-size: 14px;
-      padding: 8px;
-      border-radius: 6px;
-      word-wrap: break-word;
-    }
-
-    #chatInputWrapper {
+    #chat {
       bottom: 10px; left: 10px;
       width: 300px;
-      display: none;
-    }
-
-    #chatInput {
-      width: 100%;
-      padding: 6px 8px;
+      max-height: 150px;
+      overflow-y: auto;
+      background: rgba(0,0,0,0.7);
+      color: white;
+      padding: 8px;
+      border-radius: 6px;
       font-size: 14px;
+      user-select: none;
+    }
+    #chatInput {
+      bottom: 170px; left: 10px;
+      width: 300px;
+      display: none;
+      font-size: 14px;
+      padding: 6px;
       border-radius: 6px;
       border: none;
       outline: none;
-      box-sizing: border-box;
+      background: rgba(255,255,255,0.9);
+      color: black;
     }
   </style>
 </head>
@@ -78,10 +71,8 @@
   <div id="crosshair">+</div>
   <div id="status">Connecting...</div>
   <div id="playerList">Players:<br/></div>
-  <div id="chatMessages"></div>
-  <div id="chatInputWrapper">
-    <input type="text" id="chatInput" placeholder="Type message and press Enter..." autocomplete="off" />
-  </div>
+  <div id="chat"></div>
+  <input id="chatInput" type="text" placeholder="Type your message and press Enter..." />
 
   <script src="https://cdn.jsdelivr.net/npm/three@0.125.2/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.125.2/examples/js/controls/PointerLockControls.js"></script>
@@ -96,11 +87,7 @@
     document.body.appendChild(renderer.domElement);
 
     const controls = new THREE.PointerLockControls(camera, document.body);
-    document.body.addEventListener('click', () => {
-      if(!chatInputWrapper.style.display || chatInputWrapper.style.display === 'none') {
-        controls.lock();
-      }
-    });
+    document.body.addEventListener('click', () => controls.lock());
     scene.add(controls.getObject());
 
     let health = 100;
@@ -108,69 +95,49 @@
     const healthDisplay = document.getElementById("health");
     const statusDisplay = document.getElementById("status");
     const playerListDisplay = document.getElementById("playerList");
-    const chatMessages = document.getElementById("chatMessages");
-    const chatInputWrapper = document.getElementById("chatInputWrapper");
+    const chatDisplay = document.getElementById("chat");
     const chatInput = document.getElementById("chatInput");
-
     const keys = {};
 
     document.addEventListener('keydown', e => {
-      // Open chat input on '/'
-      if (e.key === '/' && !chatInputWrapper.style.display || chatInputWrapper.style.display === 'none') {
-        e.preventDefault();
-        openChatInput();
-        return;
-      }
-
-      // Ignore keys if chat input is open
-      if (chatInputWrapper.style.display === 'block') {
-        if (e.key === 'Escape') {
-          closeChatInput();
-        }
-        return;
-      }
-
       keys[e.code] = true;
+
+      // Chat toggle logic
+      if (e.key === '/') {
+        e.preventDefault();
+        if (!chatInput.style.display || chatInput.style.display === "none") {
+          chatInput.style.display = "block";
+          chatInput.focus();
+        }
+      } else if (e.key === "Escape") {
+        if (chatInput.style.display === "block") {
+          chatInput.value = "";
+          chatInput.style.display = "none";
+          controls.lock();
+        }
+      }
     });
+    document.addEventListener('keyup', e => keys[e.code] = false);
 
-    document.addEventListener('keyup', e => {
-      if (chatInputWrapper.style.display === 'block') return;
-      keys[e.code] = false;
-    });
-
-    function openChatInput() {
-      chatInputWrapper.style.display = 'block';
-      chatInput.focus();
-      controls.unlock();
-    }
-
-    function closeChatInput() {
-      chatInputWrapper.style.display = 'none';
-      chatInput.value = '';
-      controls.lock();
-    }
-
+    // Disable movement keys while typing
     chatInput.addEventListener('keydown', e => {
       if (e.key === 'Enter') {
-        const message = chatInput.value.trim();
-        if (message.length > 0) {
-          sendMessage(message);
-          addChatMessage("You", message);
-        }
-        closeChatInput();
-      } else if (e.key === 'Escape') {
-        closeChatInput();
+        const msg = chatInput.value.trim();
+        if (msg) sendChatMessage(msg);
+        chatInput.value = '';
+        chatInput.style.display = "none";
+        controls.lock();
       }
+      e.stopPropagation(); // prevent keys from affecting game while typing
     });
 
-    function addChatMessage(sender, message) {
-      const msgElem = document.createElement('div');
-      msgElem.textContent = `${sender}: ${message}`;
-      chatMessages.appendChild(msgElem);
-      chatMessages.scrollTop = chatMessages.scrollHeight;
-    }
+    // Lighting
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+    dirLight.position.set(5, 10, 7);
+    scene.add(dirLight);
 
-    // === Enhanced Map Colors ===
+    // Floor and obstacles
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(200, 200),
       new THREE.MeshStandardMaterial({ color: 0x888877 })
@@ -199,7 +166,9 @@
       return false;
     }
 
-    camera.position.set(0, 1.6, 0);
+    // Set initial camera and player position
+    camera.position.set(0, 2, 10);
+    controls.getObject().position.set(0, 1.6, 10);
 
     // === Multiplayer Setup ===
     const ROOM_ID = "shared-room";
@@ -218,6 +187,13 @@
         new THREE.BoxGeometry(1, 2, 1),
         new THREE.MeshStandardMaterial({ color: 0x0000ff })
       );
+    }
+
+    function addChatMessage(sender, message) {
+      const div = document.createElement('div');
+      div.textContent = sender + ": " + message;
+      chatDisplay.appendChild(div);
+      chatDisplay.scrollTop = chatDisplay.scrollHeight;
     }
 
     function setupConnection(conn) {
@@ -277,13 +253,12 @@
 
     startPeerAsHost();
 
-    // Send chat message to all connected peers
-    function sendMessage(message) {
+    // Send chat message to all connections and show locally
+    function sendChatMessage(message) {
+      addChatMessage("You", message);
       for (const id in connections) {
         const conn = connections[id];
-        if (conn.open) {
-          conn.send({ type: 'chat', message });
-        }
+        if (conn.open) conn.send({ type: 'chat', message });
       }
     }
 
@@ -291,7 +266,8 @@
     const bullets = [];
     document.addEventListener('click', () => {
       if (isDead) return;
-      if (chatInputWrapper.style.display === 'block') return; // Disable shooting when chatting
+      if (chatInput.style.display === "block") return; // Don't shoot while typing
+
       const bullet = new THREE.Mesh(
         new THREE.SphereGeometry(0.1),
         new THREE.MeshBasicMaterial({ color: 0xff0000 })
@@ -334,25 +310,23 @@
     function animate() {
       requestAnimationFrame(animate);
 
-      if (!isDead) {
-        if (chatInputWrapper.style.display !== 'block') {
-          dirVec.set(0, 0, 0);
-          if (keys.KeyW) dirVec.z -= 1;
-          if (keys.KeyS) dirVec.z += 1;
-          if (keys.KeyA) dirVec.x -= 1;
-          if (keys.KeyD) dirVec.x += 1;
-          dirVec.normalize().applyQuaternion(camera.quaternion);
-          dirVec.y = 0;
+      if (!isDead && chatInput.style.display !== "block") {
+        dirVec.set(0, 0, 0);
+        if (keys.KeyW) dirVec.z -= 1;
+        if (keys.KeyS) dirVec.z += 1;
+        if (keys.KeyA) dirVec.x -= 1;
+        if (keys.KeyD) dirVec.x += 1;
+        dirVec.normalize().applyQuaternion(camera.quaternion);
+        dirVec.y = 0;
 
-          const nextPos = controls.getObject().position.clone().add(dirVec.multiplyScalar(0.2));
-          if (!collides(nextPos)) controls.getObject().position.copy(nextPos);
+        const nextPos = controls.getObject().position.clone().add(dirVec.multiplyScalar(0.2));
+        if (!collides(nextPos)) controls.getObject().position.copy(nextPos);
 
-          for (const id in connections) {
-            const conn = connections[id];
-            if (conn.open) {
-              const p = controls.getObject().position;
-              conn.send({ type: 'position', x: p.x, y: p.y, z: p.z });
-            }
+        for (const id in connections) {
+          const conn = connections[id];
+          if (conn.open) {
+            const p = controls.getObject().position;
+            conn.send({ type: 'position', x: p.x, y: p.y, z: p.z });
           }
         }
       }
