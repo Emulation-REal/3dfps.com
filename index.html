@@ -1,273 +1,387 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Multiplayer FPS Game – Color-Enhanced Map</title>
-  <style>
-    body { margin: 0; overflow: hidden; }
-    canvas { display: block; }
-    #hud, #crosshair, #status, #playerList {
-      position: absolute;
-      font-family: sans-serif;
-      z-index: 10;
-    }
-    #hud {
-      top: 10px; left: 10px;
-      font-size: 16px;
-      color: white;
-    }
-    #crosshair {
-      top: 50%; left: 50%;
-      transform: translate(-50%, -50%);
-      font-size: 14px;
-      color: white;
-      pointer-events: none;
-    }
-    #status {
-      top: 10px; right: 10px;
-      font-size: 14px;
-      color: yellow;
-      background: rgba(0, 0, 0, 0.5);
-      padding: 6px;
-      border-radius: 6px;
-    }
-    #playerList {
-      top: 50px; right: 10px;
-      color: lightgreen;
-      font-size: 13px;
-      background: rgba(0, 0, 0, 0.5);
-      padding: 5px;
-      border-radius: 6px;
-      max-width: 150px;
-    }
-  </style>
+<meta charset="UTF-8" />
+<title>3D Multiplayer FPS Game</title>
+<style>
+  body, html {
+    margin: 0; padding: 0; overflow: hidden;
+    background: #111;
+    font-family: Arial, sans-serif;
+    color: white;
+  }
+  canvas { display: block; }
+  #health, #players {
+    position: absolute;
+    left: 10px;
+    color: white;
+    z-index: 10;
+    user-select: none;
+  }
+  #health { top: 10px; }
+  #players { top: 40px; }
+  #modMenu {
+    position: absolute;
+    right: 10px;
+    top: 10px;
+    background: rgba(0,0,0,0.7);
+    color: white;
+    padding: 10px;
+    font-family: monospace;
+    display: none;
+    z-index: 20;
+  }
+  #chatBox {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+    display: none;
+    z-index: 20;
+  }
+  #chatInput {
+    width: 300px;
+    font-size: 16px;
+  }
+</style>
 </head>
 <body>
-  <div id="hud">Health: <span id="health">100</span></div>
-  <div id="crosshair">+</div>
-  <div id="status">Connecting...</div>
-  <div id="playerList">Players:<br/></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/three@0.125.2/build/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.125.2/examples/js/controls/PointerLockControls.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/peerjs@1.4.7/dist/peerjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.155.0/examples/js/controls/PointerLockControls.js"></script>
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 
-  <script>
-    // === Initialization ===
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-    const renderer = new THREE.WebGLRenderer();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    document.body.appendChild(renderer.domElement);
+<div id="health">Health: 100</div>
+<div id="players">Players:</div>
 
-    const controls = new THREE.PointerLockControls(camera, document.body);
-    document.body.addEventListener('click', () => controls.lock());
-    scene.add(controls.getObject());
+<div id="modMenu">
+  <label><input type="checkbox" id="esp"> ESP</label><br>
+  <label><input type="checkbox" id="tracers"> Tracers</label><br>
+  <label><input type="checkbox" id="aimbot"> Aimbot</label>
+</div>
 
-    let health = 100;
-    let isDead = false;
-    const healthDisplay = document.getElementById("health");
-    const statusDisplay = document.getElementById("status");
-    const playerListDisplay = document.getElementById("playerList");
-    const keys = {};
+<div id="chatBox">
+  <input type="text" id="chatInput" autocomplete="off" />
+</div>
 
-    document.addEventListener('keydown', e => keys[e.code] = true);
-    document.addEventListener('keyup', e => keys[e.code] = false);
+<script>
+(() => {
+  // Setup Three.js basics
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+  const renderer = new THREE.WebGLRenderer({antialias:true});
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement);
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
+  // Controls - pointer lock for FPS
+  const controls = new THREE.PointerLockControls(camera, document.body);
+  document.body.addEventListener('click', () => {
+    if (!modMenuVisible && !chatVisible) controls.lock();
+  });
+  scene.add(controls.getObject());
 
-    // === Enhanced Map Colors ===
-    const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(200, 200),
-      new THREE.MeshStandardMaterial({ color: 0x888877 })
+  // UI Elements
+  const healthDisplay = document.getElementById('health');
+  const playerListDisplay = document.getElementById('players');
+  const modMenu = document.getElementById('modMenu');
+  const chatBox = document.getElementById('chatBox');
+  const chatInput = document.getElementById('chatInput');
+
+  // Mod toggles
+  const espCheckbox = document.getElementById('esp');
+  const tracersCheckbox = document.getElementById('tracers');
+  const aimbotCheckbox = document.getElementById('aimbot');
+
+  // Game state
+  let health = 100;
+  let modMenuVisible = false;
+  let chatVisible = false;
+  let isAiming = false;
+  let keys = {};
+  let players = {};
+  let bullets = [];
+
+  // Setup lighting and floor
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(200, 200),
+    new THREE.MeshStandardMaterial({color: 0x444444})
+  );
+  floor.rotation.x = -Math.PI / 2;
+  scene.add(floor);
+
+  // Obstacles
+  const obstacles = [];
+  for (let i = 0; i < 15; i++) {
+    const box = new THREE.Mesh(
+      new THREE.BoxGeometry(5, 6, 2),
+      new THREE.MeshStandardMaterial({color: 0x888888})
     );
-    floor.rotation.x = -Math.PI / 2;
-    scene.add(floor);
+    box.position.set((Math.random()-0.5)*100, 3, (Math.random()-0.5)*100);
+    scene.add(box);
+    obstacles.push(box);
+  }
 
-    const containerColors = [0x0055ff, 0xff3333, 0x33cc33, 0xffff33];
-    const obstacles = [];
-    for (let i = 0; i < 15; i++) {
-      const color = containerColors[i % containerColors.length];
-      const box = new THREE.Mesh(
-        new THREE.BoxGeometry(5, 6, 2),
-        new THREE.MeshStandardMaterial({ color })
-      );
-      box.position.set((Math.random() - 0.5) * 100, 3, (Math.random() - 0.5) * 100);
-      scene.add(box);
-      obstacles.push(box);
+  camera.position.set(0, 1.6, 0);
+
+  // Overlay canvas for ESP & tracers
+  const overlay = document.createElement('canvas');
+  overlay.width = window.innerWidth;
+  overlay.height = window.innerHeight;
+  overlay.style.position = 'absolute';
+  overlay.style.top = '0';
+  overlay.style.left = '0';
+  overlay.style.pointerEvents = 'none';
+  overlay.style.zIndex = '15';
+  document.body.appendChild(overlay);
+  const ctx = overlay.getContext('2d');
+
+  // Collision detection with obstacles
+  function collides(pos) {
+    for (const o of obstacles) {
+      if (Math.abs(pos.x - o.position.x) < 3 && Math.abs(pos.z - o.position.z) < 3) return true;
     }
+    return false;
+  }
 
-    function collides(pos) {
-      for (let o of obstacles) {
-        if (Math.abs(pos.x - o.position.x) < 3
-         && Math.abs(pos.z - o.position.z) < 3) return true;
-      }
-      return false;
-    }
+  // PeerJS setup
+  const peer = new Peer(undefined, {host:"peerjs.com", secure:true, port:443});
+  let connections = [];
 
-    camera.position.set(0, 1.6, 0);
+  peer.on('open', id => {
+    broadcast = data => connections.forEach(conn => conn.open && conn.send(data));
+    connectToPeers();
+  });
 
-    // === Multiplayer Setup ===
-    const ROOM_ID = "shared-room";
-    let peer, isHost = false;
-    const connections = {};
-    const remotePlayers = {};
+  peer.on('connection', conn => {
+    conn.on('data', data => handleData(data, conn));
+    connections.push(conn);
+    conn.on('close', () => connections = connections.filter(c => c !== conn));
+  });
 
-    function updatePlayerList() {
-      let html = "Players:<br/>You<br/>";
-      for (const id in remotePlayers) html += id + "<br/>";
-      playerListDisplay.innerHTML = html;
-    }
-
-    function createRemoteMesh() {
-      return new THREE.Mesh(
-        new THREE.BoxGeometry(1, 2, 1),
-        new THREE.MeshStandardMaterial({ color: 0x0000ff })
-      );
-    }
-
-    function setupConnection(conn) {
-      connections[conn.peer] = conn;
-
-      conn.on('data', data => {
-        if (data.type === 'position') {
-          if (!remotePlayers[conn.peer]) {
-            const mesh = createRemoteMesh();
-            scene.add(mesh);
-            remotePlayers[conn.peer] = { mesh, health: 100 };
-            updatePlayerList();
-          }
-          remotePlayers[conn.peer].mesh.position.set(data.x, data.y, data.z);
-        }
-        else if (data.type === 'hit') {
-          if (!isDead) {
-            health -= 25;
-            if (health <= 0) dieAndRespawn();
-          }
+  async function connectToPeers() {
+    try {
+      const list = await fetch("https://0.peerjs.com/peers").then(r => r.json());
+      list.forEach(pid => {
+        if(pid !== peer.id && !connections.some(c => c.peer === pid)) {
+          const conn = peer.connect(pid);
+          conn.on('open', () => {
+            conn.on('data', data => handleData(data, conn));
+            connections.push(conn);
+          });
         }
       });
+    } catch (e) { /* ignore network errors */ }
+  }
 
-      conn.on('close', () => {
-        if (remotePlayers[conn.peer]) {
-          scene.remove(remotePlayers[conn.peer].mesh);
-          delete remotePlayers[conn.peer];
-          updatePlayerList();
-        }
-        delete connections[conn.peer];
-      });
-    }
-
-    function startPeerAsHost() {
-      peer = new Peer(ROOM_ID, { debug: 1 });
-      peer.on('open', () => {
-        statusDisplay.textContent = "Connected as Host";
-        isHost = true;
-      });
-      peer.on('connection', conn => setupConnection(conn));
-      peer.on('error', err => {
-        if (err.type === 'unavailable-id') startPeerAsClient();
-      });
-    }
-
-    function startPeerAsClient() {
-      peer = new Peer({ debug: 1 });
-      peer.on('open', () => {
-        statusDisplay.textContent = "Connected as Client";
-        const conn = peer.connect(ROOM_ID);
-        conn.on('open', () => setupConnection(conn));
-      });
-    }
-
-    startPeerAsHost();
-
-    // === Shooting ===
-    const bullets = [];
-    document.addEventListener('click', () => {
-      if (isDead) return;
-      const bullet = new THREE.Mesh(
-        new THREE.SphereGeometry(0.1),
-        new THREE.MeshBasicMaterial({ color: 0xff0000 })
-      );
-      bullet.position.copy(camera.position);
-      bullet.direction = camera.getWorldDirection(new THREE.Vector3()).clone();
-      scene.add(bullet);
-      bullets.push(bullet);
+  // Broadcast player update every 100ms
+  setInterval(() => {
+    broadcast({
+      type: 'update',
+      id: peer.id,
+      pos: controls.getObject().position,
+      rot: camera.rotation,
+      health
     });
+  }, 100);
 
-    function checkBulletHit(bullet) {
-      for (const id in remotePlayers) {
-        const player = remotePlayers[id];
-        if (bullet.position.distanceTo(player.mesh.position) < 1.5) {
-          connections[id]?.send({ type: 'hit' });
-          return true;
+  // Handle incoming data from peers
+  function handleData(data, conn) {
+    switch(data.type) {
+      case 'update':
+        if (!players[data.id]) {
+          const p = new THREE.Mesh(
+            new THREE.BoxGeometry(1, 2, 1),
+            new THREE.MeshStandardMaterial({color: 0x00ffff})
+          );
+          scene.add(p);
+          players[data.id] = {mesh: p, health: 100};
         }
-      }
-      return false;
-    }
-
-    // === Death & Respawn ===
-    function dieAndRespawn() {
-      isDead = true;
-      health = 0;
-      healthDisplay.textContent = "DEAD";
-      controls.getObject().position.set(999, 999, 999);
-
-      setTimeout(() => {
-        isDead = false;
-        health = 100;
-        healthDisplay.textContent = health;
-        controls.getObject().position.set(Math.random() * 20 - 10, 1.6, Math.random() * 20 - 10);
-      }, 3000);
-    }
-
-    // === Main Loop ===
-    const dirVec = new THREE.Vector3();
-
-    function animate() {
-      requestAnimationFrame(animate);
-
-      if (!isDead) {
-        dirVec.set(0, 0, 0);
-        if (keys.KeyW) dirVec.z -= 1;
-        if (keys.KeyS) dirVec.z += 1;
-        if (keys.KeyA) dirVec.x -= 1;
-        if (keys.KeyD) dirVec.x += 1;
-        dirVec.normalize().applyQuaternion(camera.quaternion);
-        dirVec.y = 0;
-
-        const nextPos = controls.getObject().position.clone().add(dirVec.multiplyScalar(0.2));
-        if (!collides(nextPos)) controls.getObject().position.copy(nextPos);
-
-        for (const id in connections) {
-          const conn = connections[id];
-          if (conn.open) {
-            const p = controls.getObject().position;
-            conn.send({ type: 'position', x: p.x, y: p.y, z: p.z });
+        players[data.id].mesh.position.copy(data.pos);
+        players[data.id].mesh.rotation.y = data.rot.y;
+        players[data.id].health = data.health;
+        break;
+      case 'chat':
+        alert(`Player says: ${data.msg}`);
+        break;
+      case 'shoot':
+        createBullet(data.pos, data.dir);
+        break;
+      case 'hit':
+        if(data.id === peer.id) {
+          health -= 20;
+          if (health <= 0) {
+            health = 0;
+            respawn();
           }
         }
+        break;
+    }
+  }
+
+  // Create bullet mesh and add velocity
+  function createBullet(pos, dir) {
+    const b = new THREE.Mesh(
+      new THREE.SphereGeometry(0.1),
+      new THREE.MeshBasicMaterial({color: 0xff0000})
+    );
+    b.position.copy(pos);
+    b.userData.velocity = new THREE.Vector3(dir.x, dir.y, dir.z);
+    bullets.push(b);
+    scene.add(b);
+  }
+
+  // Respawn player after death
+  function respawn() {
+    health = 100;
+    controls.getObject().position.set(0, 1.6, 0);
+  }
+
+  // Input handlers
+  document.addEventListener('keydown', e => {
+    if(e.key === ';') {
+      modMenuVisible = !modMenuVisible;
+      modMenu.style.display = modMenuVisible ? 'block' : 'none';
+      if (modMenuVisible) controls.unlock();
+      else if(!chatVisible) controls.lock();
+      e.preventDefault();
+    }
+    else if(e.key === '/' && !chatVisible) {
+      chatVisible = true;
+      chatBox.style.display = 'block';
+      chatInput.focus();
+      e.preventDefault();
+    }
+    else if(e.key === 'Enter' && chatVisible) {
+      const msg = chatInput.value.trim();
+      if(msg) {
+        broadcast({type:'chat', msg});
       }
+      chatInput.value = '';
+      chatBox.style.display = 'none';
+      chatVisible = false;
+      if(!modMenuVisible) controls.lock();
+      e.preventDefault();
+    } else {
+      keys[e.code] = true;
+    }
+  });
 
-      bullets.forEach((b, i) => {
-        b.position.add(b.direction.clone().multiplyScalar(0.5));
-        if (checkBulletHit(b)) {
-          scene.remove(b); bullets.splice(i, 1);
-        }
-        else if (b.position.length() > 200) {
-          scene.remove(b); bullets.splice(i, 1);
-        }
-      });
+  document.addEventListener('keyup', e => { keys[e.code] = false; });
+  let isAiming = false;
+  document.addEventListener('mousedown', e => { if(e.button === 2) isAiming = true; });
+  document.addEventListener('mouseup', e => { if(e.button === 2) isAiming = false; });
 
-      healthDisplay.textContent = isDead ? "DEAD" : Math.floor(health);
-      renderer.render(scene, camera);
+  // Shooting bullets
+  document.addEventListener('click', () => {
+    if(!controls.isLocked || modMenuVisible || chatVisible) return;
+    const bulletPos = camera.position.clone();
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    createBullet(bulletPos, dir.clone().multiplyScalar(0.6));
+    broadcast({type: 'shoot', pos: bulletPos, dir});
+  });
+
+  // Game loop
+  const direction = new THREE.Vector3();
+
+  function animate() {
+    requestAnimationFrame(animate);
+
+    ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+    direction.set(0, 0, 0);
+    if(keys['KeyW']) direction.z -= 1;
+    if(keys['KeyS']) direction.z += 1;
+    if(keys['KeyA']) direction.x -= 1;
+    if(keys['KeyD']) direction.x += 1;
+
+    direction.normalize().applyQuaternion(camera.quaternion);
+    direction.y = 0;
+
+    const nextPos = controls.getObject().position.clone().add(direction.multiplyScalar(0.2));
+    if(!collides(nextPos)) controls.getObject().position.copy(nextPos);
+
+    // Gravity simulation
+    controls.getObject().position.y -= 0.2;
+    if(controls.getObject().position.y < 1.6) controls.getObject().position.y = 1.6;
+
+    // Draw players ESP and tracers
+    for(const id in players) {
+      const p = players[id].mesh;
+      const screenPos = p.position.clone().project(camera);
+      const x = (screenPos.x * 0.5 + 0.5) * overlay.width;
+      const y = (-screenPos.y * 0.5 + 0.5) * overlay.height;
+
+      if(espCheckbox.checked) {
+        ctx.strokeStyle = 'lime';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x - 10, y - 20, 20, 40);
+      }
+      if(tracersCheckbox.checked) {
+        ctx.strokeStyle = 'cyan';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(overlay.width / 2, overlay.height);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+      }
     }
 
-    animate();
+    // Aimbot: aim at closest player on right mouse hold
+    if(aimbotCheckbox.checked && isAiming) {
+      let closest = null, minDist = Infinity;
+      for(const id in players) {
+        const dist = players[id].mesh.position.distanceTo(camera.position);
+        if(dist < minDist) {
+          minDist = dist;
+          closest = players[id].mesh;
+        }
+      }
+      if(closest) camera.lookAt(closest.position);
+    }
 
-    window.addEventListener('resize', () => {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-    });
-  </script>
+    // Update bullets
+    for(let i = bullets.length - 1; i >= 0; i--) {
+      const b = bullets[i];
+      b.position.add(b.userData.velocity);
+
+      // Check collision with players (except self)
+      for(const id in players) {
+        if(id === peer.id) continue;
+        if(b.position.distanceTo(players[id].mesh.position) < 1) {
+          broadcast({type: 'hit', id});
+          scene.remove(b);
+          bullets.splice(i, 1);
+          break;
+        }
+      }
+
+      // Remove bullets if out of range
+      if(b.position.distanceTo(controls.getObject().position) > 100) {
+        scene.remove(b);
+        bullets.splice(i, 1);
+      }
+    }
+
+    // Update health and player list UI
+    healthDisplay.textContent = `Health: ${Math.floor(health)}`;
+    const otherPlayers = Object.keys(players).filter(id => id !== peer.id);
+    playerListDisplay.innerHTML = 'Players:<br>' + (otherPlayers.length ? otherPlayers.join('<br>') : 'No one else');
+
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  // Handle window resize
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    overlay.width = window.innerWidth;
+    overlay.height = window.innerHeight;
+  });
+})();
+</script>
+
 </body>
 </html>
