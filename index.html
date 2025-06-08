@@ -2,10 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>3D FPS Shooter</title>
+  <title>FPS Shooter Game</title>
   <style>
     body { margin: 0; overflow: hidden; }
-    canvas { display: block; }
     #hud {
       position: absolute;
       top: 10px;
@@ -29,114 +28,161 @@
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
 
-  // Lighting
-  let light = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
-  light.position.set(0, 200, 0);
-  scene.add(light);
+  let controls = new THREE.PointerLockControls(camera, document.body);
+  document.body.addEventListener('click', () => controls.lock());
+  scene.add(controls.getObject());
 
   // Floor
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshStandardMaterial({ color: 0x333333 }));
+  let floor = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: 0x444444 }));
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
   scene.add(floor);
 
-  // Pointer Lock Controls
-  const controls = new THREE.PointerLockControls(camera, document.body);
-  document.body.addEventListener('click', () => controls.lock());
-  scene.add(controls.getObject());
+  // Lighting
+  const light = new THREE.HemisphereLight(0xffffff, 0x333333, 1);
+  scene.add(light);
 
-  // Movement
+  // Obstacles
+  const obstacles = [];
+  function createObstacle(x, z) {
+    const o = new THREE.Mesh(
+      new THREE.BoxGeometry(5, 4, 2),
+      new THREE.MeshStandardMaterial({ color: 0x888888 })
+    );
+    o.position.set(x, 2, z);
+    scene.add(o);
+    obstacles.push(o);
+  }
+
+  for (let i = 0; i < 12; i++) {
+    createObstacle((Math.random() - 0.5) * 100, (Math.random() - 0.5) * 100);
+  }
+
+  // Player
+  camera.position.set(0, 1.6, 0);
+  const keys = {};
   const velocity = new THREE.Vector3();
   const direction = new THREE.Vector3();
-  const keys = {};
+  let onGround = false;
 
   document.addEventListener('keydown', e => keys[e.code] = true);
   document.addEventListener('keyup', e => keys[e.code] = false);
 
-  // Jersey barriers (obstacles)
-  const obstacles = [];
-  function createObstacle(x, z) {
-    const obj = new THREE.Mesh(
-      new THREE.BoxGeometry(5, 2, 1.5),
-      new THREE.MeshStandardMaterial({ color: 0xa0a0a0 })
-    );
-    obj.position.set(x, 1, z);
-    scene.add(obj);
-    obstacles.push(obj);
-  }
-
-  createObstacle(5, -10);
-  createObstacle(-10, -5);
-  createObstacle(10, 10);
-  createObstacle(-5, 15);
-
   // Enemies
-  const enemies = [];
-  function spawnEnemy(x, z) {
-    const enemy = new THREE.Mesh(
+  let enemies = [];
+  function spawnEnemy() {
+    const e = new THREE.Mesh(
       new THREE.BoxGeometry(1, 2, 1),
       new THREE.MeshStandardMaterial({ color: 0xff0000 })
     );
-    enemy.position.set(x, 1, z);
-    scene.add(enemy);
-    enemies.push(enemy);
+    e.position.set((Math.random() - 0.5) * 80, 1, (Math.random() - 0.5) * 80);
+    e.userData.health = 100;
+    scene.add(e);
+    enemies.push(e);
   }
 
-  for (let i = 0; i < 5; i++) {
-    spawnEnemy(Math.random() * 50 - 25, Math.random() * 50 - 25);
-  }
+  for (let i = 0; i < 5; i++) spawnEnemy();
 
-  // Health System
+  // Health system
   let health = 100;
-  const healthDisplay = document.getElementById('health');
+  const healthDisplay = document.getElementById("health");
 
-  // Collision Detection
-  function checkCollision(pos) {
-    for (const obj of obstacles) {
+  // Bullets
+  const bullets = [];
+
+  document.addEventListener("click", () => {
+    if (!controls.isLocked) return;
+    const bullet = new THREE.Mesh(
+      new THREE.SphereGeometry(0.1),
+      new THREE.MeshBasicMaterial({ color: 0xffff00 })
+    );
+    bullet.position.copy(camera.position);
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    bullet.userData.velocity = dir.clone().multiplyScalar(1);
+    bullets.push(bullet);
+    scene.add(bullet);
+  });
+
+  // Collision Check (Simple AABB)
+  function collides(pos) {
+    for (let obj of obstacles) {
       const dx = Math.abs(pos.x - obj.position.x);
       const dz = Math.abs(pos.z - obj.position.z);
-      if (dx < 3 && dz < 2) return true;
+      if (dx < 3 && dz < 3) return true;
     }
     return false;
   }
 
-  // Game loop
-  camera.position.set(0, 1.6, 0);
+  // Animate
   function animate() {
     requestAnimationFrame(animate);
 
-    // Movement
+    // Player movement
     direction.set(0, 0, 0);
     if (keys['KeyW']) direction.z -= 1;
     if (keys['KeyS']) direction.z += 1;
     if (keys['KeyA']) direction.x -= 1;
     if (keys['KeyD']) direction.x += 1;
 
-    direction.normalize();
-    direction.applyQuaternion(camera.quaternion);
-    velocity.copy(direction).multiplyScalar(0.2);
+    direction.normalize().applyQuaternion(camera.quaternion);
+    direction.y = 0;
 
-    const nextPos = controls.getObject().position.clone().add(velocity);
-    if (!checkCollision(nextPos)) {
-      controls.getObject().position.copy(nextPos);
+    const nextPos = controls.getObject().position.clone().add(direction.clone().multiplyScalar(0.2));
+    if (!collides(nextPos)) controls.getObject().position.copy(nextPos);
+
+    // Gravity
+    if (!onGround) {
+      controls.getObject().position.y -= 0.2;
+      if (controls.getObject().position.y <= 1.6) {
+        controls.getObject().position.y = 1.6;
+        onGround = true;
+      }
     }
 
     // Enemy AI
-    for (const enemy of enemies) {
-      const playerPos = controls.getObject().position;
-      const dist = enemy.position.distanceTo(playerPos);
-      if (dist > 1) {
-        const dir = new THREE.Vector3().subVectors(playerPos, enemy.position).normalize();
-        enemy.position.addScaledVector(dir, 0.03);
+    for (let e of enemies) {
+      if (!e.userData) continue;
+      const dir = new THREE.Vector3().subVectors(controls.getObject().position, e.position);
+      if (dir.length() > 1) {
+        dir.normalize();
+        e.position.addScaledVector(dir, 0.03);
       } else {
         health -= 0.2;
-        health = Math.max(health, 0);
+        health = Math.max(0, health);
         healthDisplay.textContent = Math.floor(health);
+      }
+    }
+
+    // Bullets move
+    for (let i = bullets.length - 1; i >= 0; i--) {
+      const b = bullets[i];
+      b.position.add(b.userData.velocity);
+      // Bullet collision with enemies
+      for (let j = enemies.length - 1; j >= 0; j--) {
+        const e = enemies[j];
+        if (b.position.distanceTo(e.position) < 1) {
+          e.userData.health -= 50;
+          if (e.userData.health <= 0) {
+            scene.remove(e);
+            enemies.splice(j, 1);
+            // Respawn after delay
+            setTimeout(() => spawnEnemy(), 3000);
+          }
+          scene.remove(b);
+          bullets.splice(i, 1);
+          break;
+        }
+      }
+      if (b.position.length() > 200) {
+        scene.remove(b);
+        bullets.splice(i, 1);
       }
     }
 
     renderer.render(scene, camera);
   }
+
   animate();
 
   window.addEventListener('resize', () => {
