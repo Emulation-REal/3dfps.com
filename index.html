@@ -2,599 +2,469 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>3D FPS Shooter Multiplayer with Mods</title>
+<title>Simple FPS with Aimbot, ESP & Tracers</title>
 <style>
-  body {
-    margin: 0; overflow: hidden; font-family: Arial, sans-serif; background: #111;
+  body, html {
+    margin: 0; padding: 0; overflow: hidden;
+    height: 100%; background-color: #222;
+    font-family: Arial, sans-serif;
+    color: white;
   }
   #modMenu {
     position: fixed;
-    top: 50px; right: 50px;
+    top: 10px; right: 10px;
     background: rgba(0,0,0,0.7);
-    color: white;
     padding: 10px;
-    font-size: 14px;
     border-radius: 6px;
-    display: none;
-    user-select: none;
+    font-size: 14px;
     z-index: 1000;
   }
   #modMenu label {
-    display: flex;
-    align-items: center;
+    display: block;
     margin-bottom: 6px;
     cursor: pointer;
   }
-  #modMenu label input {
-    margin-right: 6px;
-  }
   #crosshair {
     position: fixed;
-    top: 50%; left: 50%;
-    width: 12px; height: 12px;
-    margin-left: -6px; margin-top: -6px;
+    left: 50%; top: 50%;
+    width: 20px; height: 20px;
+    margin-left: -10px; margin-top: -10px;
     pointer-events: none;
-    z-index: 999;
+    z-index: 1000;
   }
-  #crosshair div {
+  #crosshair:before, #crosshair:after {
+    content: '';
     position: absolute;
-    background: white;
+    background: cyan;
   }
-  #crosshair .hor {
-    top: 50%; left: 0;
-    width: 100%; height: 2px;
-    margin-top: -1px;
+  #crosshair:before {
+    left: 9px; top: 0;
+    width: 2px; height: 20px;
   }
-  #crosshair .ver {
-    left: 50%; top: 0;
-    width: 2px; height: 100%;
-    margin-left: -1px;
+  #crosshair:after {
+    top: 9px; left: 0;
+    width: 20px; height: 2px;
   }
-  .nametag {
-    color: white;
-    font-weight: bold;
+  .nameTag {
+    position: absolute;
+    color: cyan;
     font-size: 12px;
     text-align: center;
-    user-select: none;
     pointer-events: none;
-    text-shadow:
-      -1px -1px 0 #000,
-      1px -1px 0 #000,
-      -1px 1px 0 #000,
-      1px 1px 0 #000;
+    user-select: none;
+    text-shadow: 0 0 5px black;
   }
-  .healthbar {
-    width: 40px;
-    height: 6px;
-    background: #333;
-    border-radius: 3px;
-    overflow: hidden;
-    margin-top: 2px;
-    box-shadow: 0 0 4px rgba(0,0,0,0.7);
-  }
-  .healthbar-inner {
-    height: 100%;
+  .healthBar {
+    position: absolute;
+    height: 4px;
     background: limegreen;
-    transition: width 0.2s ease-out;
+    border-radius: 2px;
+    pointer-events: none;
   }
 </style>
 </head>
 <body>
 <div id="modMenu">
-  <label><input type="checkbox" id="modEsp" /> ESP (Boxes + Name + Health)</label>
-  <label><input type="checkbox" id="modTracers" /> Tracers</label>
-  <label><input type="checkbox" id="modAimbot" /> Aimbot (Hold Right Mouse)</label>
-  <label><input type="checkbox" id="modNoClip" /> No-Clip (Walk through walls)</label>
-  <label><input type="checkbox" id="modSpeed" /> Speed Hack</label>
-  <small>Press ";" to toggle menu and unlock cursor</small>
+  <label><input type="checkbox" id="modAimbot" /> Aimbot (hold right mouse)</label>
+  <label><input type="checkbox" id="modEsp" checked /> ESP (boxes & nametags)</label>
+  <label><input type="checkbox" id="modTracers" checked /> Tracers</label>
+  <div style="font-size:12px; margin-top:6px; color:#aaa;">Press right mouse button for aimbot</div>
 </div>
+<div id="crosshair"></div>
 
-<div id="crosshair">
-  <div class="hor"></div>
-  <div class="ver"></div>
-</div>
-
-<script src="https://cdn.jsdelivr.net/npm/three@0.125.2/build/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.125.2/examples/js/controls/PointerLockControls.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/netplayjs@0.1.2/dist/netplay.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.152.2/examples/js/controls/PointerLockControls.js"></script>
 
 <script>
 (() => {
+  // Setup scene
   const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x111111);
+
+  // Camera & Renderer
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
   const renderer = new THREE.WebGLRenderer({antialias:true});
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
 
-  // Lighting
-  const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
-  hemiLight.position.set(0, 200, 0);
-  scene.add(hemiLight);
-  const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
-  dirLight.position.set(0, 200, 100);
+  // Controls (pointer lock)
+  const controls = new THREE.PointerLockControls(camera, document.body);
+  document.body.addEventListener('click', () => {
+    if (!controls.isLocked) controls.lock();
+  });
+
+  // Ground
+  const groundGeometry = new THREE.PlaneGeometry(200, 200);
+  const groundMaterial = new THREE.MeshPhongMaterial({color:0x222222});
+  const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+  ground.rotation.x = -Math.PI/2;
+  scene.add(ground);
+
+  // Lights
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
+  scene.add(ambientLight);
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+  dirLight.position.set(5,10,7);
   scene.add(dirLight);
 
-  // Floor
-  const floorMat = new THREE.MeshStandardMaterial({color: 0x333333});
-  const floorGeo = new THREE.PlaneGeometry(200, 200);
-  const floor = new THREE.Mesh(floorGeo, floorMat);
-  floor.rotation.x = -Math.PI / 2;
-  floor.receiveShadow = true;
-  scene.add(floor);
-
-  // Obstacles (taller, more)
-  const obstacles = [];
-  const obstacleMat = new THREE.MeshStandardMaterial({color: 0x666666});
-  const obstacleGeo = new THREE.BoxGeometry(3, 5, 1.5); // tall jersey barriers
-
-  const obstaclePositions = [
-    [-10, 2.5, -10],
-    [5, 2.5, -15],
-    [15, 2.5, 5],
-    [-15, 2.5, 15],
-    [0, 2.5, 0],
-    [8, 2.5, 8],
-    [-8, 2.5, 8],
-    [-8, 2.5, -8],
-    [8, 2.5, -8],
-  ];
-
-  for (const pos of obstaclePositions) {
-    const obs = new THREE.Mesh(obstacleGeo, obstacleMat);
-    obs.position.set(...pos);
-    obs.castShadow = true;
-    obs.receiveShadow = true;
-    scene.add(obs);
-    obstacles.push(obs);
-  }
-
-  // Player Setup
-  const controls = new THREE.PointerLockControls(camera, document.body);
-  scene.add(controls.getObject());
-  camera.position.set(0, 1.6, 5);
-
+  // Player variables
   const velocity = new THREE.Vector3();
-  const direction = new THREE.Vector3();
-
-  // Movement state
-  const move = {forward:false, backward:false, left:false, right:false};
+  let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+  const speed = 0.4; // Increased speed here
   let canJump = false;
-  let prevTime = performance.now();
+  let playerHeight = 1.7;
 
-  // Health and shooting
-  let playerHealth = 100;
-  let shootCooldown = 0;
-
-  // Crosshair & mod menu toggle
-  const modMenu = document.getElementById('modMenu');
-  let modMenuOpen = false;
-
-  window.addEventListener('keydown', (e) => {
-    if (e.code === 'KeyW') move.forward = true;
-    if (e.code === 'KeyS') move.backward = true;
-    if (e.code === 'KeyA') move.left = true;
-    if (e.code === 'KeyD') move.right = true;
-    if (e.code === 'Space' && canJump) {
-      velocity.y += 7;
-      canJump = false;
-    }
-    if (e.key === ';') {
-      modMenuOpen = !modMenuOpen;
-      if (modMenuOpen) {
-        modMenu.style.display = 'block';
-        controls.unlock();
-      } else {
-        modMenu.style.display = 'none';
-        controls.lock();
-      }
-    }
-  });
-  window.addEventListener('keyup', (e) => {
-    if (e.code === 'KeyW') move.forward = false;
-    if (e.code === 'KeyS') move.backward = false;
-    if (e.code === 'KeyA') move.left = false;
-    if (e.code === 'KeyD') move.right = false;
-  });
-
-  // Lock pointer on click unless mod menu open
-  document.body.addEventListener('click', () => {
-    if (!modMenuOpen) controls.lock();
-  });
-
-  // Basic box for player collision
+  // Player collider box (simple)
   const playerBox = new THREE.Box3();
-  const tempBox = new THREE.Box3();
+
+  // Set initial position
+  controls.getObject().position.set(0, playerHeight, 0);
+
+  // Obstacles for collisions
+  const obstacles = [];
+
+  // Create some obstacles (boxes)
+  function createBox(x,z) {
+    const geom = new THREE.BoxGeometry(2,2,2);
+    const mat = new THREE.MeshPhongMaterial({color: 0x555555});
+    const box = new THREE.Mesh(geom, mat);
+    box.position.set(x, 1, z);
+    scene.add(box);
+    obstacles.push(box);
+  }
+  createBox(5,5);
+  createBox(-5,10);
+  createBox(10,-5);
+  createBox(-8,-8);
 
   // Enemies
-  const enemyGeometry = new THREE.BoxGeometry(1, 2, 1);
-  const enemyMaterial = new THREE.MeshStandardMaterial({color: 0xff0000});
-  const enemies = [];
-
-  const enemyCount = 15; // more enemies
-
-  // Enemy class with health and name tag
   class Enemy {
-    constructor(id, isPlayer = false) {
-      this.id = id;
-      this.isPlayer = isPlayer;
-      this.health = 100;
-      this.mesh = new THREE.Mesh(enemyGeometry, enemyMaterial.clone());
-      this.mesh.position.set((Math.random()-0.5)*50, 1, (Math.random()-0.5)*50);
-      this.mesh.castShadow = true;
+    constructor(name, position) {
+      this.name = name;
+      const geom = new THREE.BoxGeometry(1, 2, 1);
+      const mat = new THREE.MeshBasicMaterial({color: 0xff0000, wireframe: false});
+      this.mesh = new THREE.Mesh(geom, mat);
+      this.mesh.position.copy(position);
+      scene.add(this.mesh);
 
-      // Name tag container
+      // Name tag DOM element
       this.nameTagDiv = document.createElement('div');
-      this.nameTagDiv.className = 'nametag';
-      this.nameTagDiv.textContent = isPlayer ? `Player ${id}` : `Enemy ${id}`;
+      this.nameTagDiv.className = 'nameTag';
+      this.nameTagDiv.textContent = name;
       document.body.appendChild(this.nameTagDiv);
 
       // Health bar
+      this.health = 100;
       this.healthBarDiv = document.createElement('div');
-      this.healthBarDiv.className = 'healthbar';
-      this.healthInnerDiv = document.createElement('div');
-      this.healthInnerDiv.className = 'healthbar-inner';
-      this.healthBarDiv.appendChild(this.healthInnerDiv);
+      this.healthBarDiv.className = 'healthBar';
       document.body.appendChild(this.healthBarDiv);
-
-      scene.add(this.mesh);
     }
 
-    updateNameTag(cam) {
+    updateNameTag(camera) {
       const pos = this.mesh.position.clone();
       pos.y += 2.5;
-      const vector = pos.project(cam);
+      const vector = pos.project(camera);
+
       const x = (vector.x * 0.5 + 0.5) * window.innerWidth;
-      const y = (-vector.y * 0.5 + 0.5) * window.innerHeight;
+      const y = ( - vector.y * 0.5 + 0.5) * window.innerHeight;
 
-      this.nameTagDiv.style.transform = `translate(-50%, -50%) translate(${x}px,${y}px)`;
-      this.healthBarDiv.style.transform = `translate(-50%, -50%) translate(${x}px,${y + 15}px)`;
-    }
+      this.nameTagDiv.style.left = `${x - this.nameTagDiv.clientWidth/2}px`;
+      this.nameTagDiv.style.top = `${y}px`;
 
-    updateHealthBar() {
-      this.healthInnerDiv.style.width = `${this.health}%`;
-      if (this.health > 60) this.healthInnerDiv.style.background = 'limegreen';
-      else if (this.health > 30) this.healthInnerDiv.style.background = 'orange';
-      else this.healthInnerDiv.style.background = 'red';
+      this.healthBarDiv.style.left = `${x - 20}px`;
+      this.healthBarDiv.style.top = `${y + 15}px`;
+      this.healthBarDiv.style.width = `${40 * (this.health/100)}px`;
     }
 
     dispose() {
       scene.remove(this.mesh);
-      this.nameTagDiv.remove();
-      this.healthBarDiv.remove();
+      document.body.removeChild(this.nameTagDiv);
+      document.body.removeChild(this.healthBarDiv);
     }
   }
 
-  // Create initial enemies
-  for (let i=0; i<enemyCount; i++) {
-    enemies.push(new Enemy(i));
+  const enemies = [];
+  // Spawn some enemies randomly around
+  for(let i=0; i<6; i++){
+    const x = (Math.random()-0.5)*50;
+    const z = (Math.random()-0.5)*50;
+    enemies.push(new Enemy(`Enemy${i+1}`, new THREE.Vector3(x,1,z)));
   }
 
-  // Multiplayer players map: id -> Enemy instance
-  const players = new Map();
+  // Bullets
+  const bullets = [];
+  class Bullet {
+    constructor(origin, direction) {
+      const geom = new THREE.SphereGeometry(0.1,8,8);
+      const mat = new THREE.MeshBasicMaterial({color: 0xffff00});
+      this.mesh = new THREE.Mesh(geom, mat);
+      this.mesh.position.copy(origin);
+      scene.add(this.mesh);
+
+      this.direction = direction.clone();
+      this.speed = 1;
+      this.alive = true;
+    }
+    update() {
+      this.mesh.position.add(this.direction.clone().multiplyScalar(this.speed));
+      // Check collisions with enemies
+      for(let enemy of enemies){
+        if(enemy.health <= 0) continue;
+        const dist = enemy.mesh.position.distanceTo(this.mesh.position);
+        if(dist < 1){
+          enemy.health -= 20;
+          if(enemy.health < 0) enemy.health = 0;
+          this.alive = false;
+          scene.remove(this.mesh);
+          break;
+        }
+      }
+      // Remove if too far
+      if(this.mesh.position.distanceTo(controls.getObject().position) > 100){
+        this.alive = false;
+        scene.remove(this.mesh);
+      }
+    }
+  }
+
+  // Input handling
+  const keys = {};
+  document.addEventListener('keydown', (e) => {
+    keys[e.code] = true;
+    switch(e.code){
+      case 'KeyW': moveForward = true; break;
+      case 'KeyS': moveBackward = true; break;
+      case 'KeyA': moveLeft = true; break;
+      case 'KeyD': moveRight = true; break;
+      case 'Space':
+        if(canJump){
+          velocity.y = 0.2;
+          canJump = false;
+        }
+        break;
+    }
+  });
+  document.addEventListener('keyup', (e) => {
+    keys[e.code] = false;
+    switch(e.code){
+      case 'KeyW': moveForward = false; break;
+      case 'KeyS': moveBackward = false; break;
+      case 'KeyA': moveLeft = false; break;
+      case 'KeyD': moveRight = false; break;
+    }
+  });
+
+  // Shoot function
+  function shoot(){
+    const origin = controls.getObject().position.clone();
+    const direction = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion);
+    bullets.push(new Bullet(origin, direction));
+  }
+
+  window.addEventListener('mousedown', e => {
+    if(e.button === 0) shoot();
+  });
 
   // Mods
+  const modAimbot = document.getElementById('modAimbot');
   const modEsp = document.getElementById('modEsp');
   const modTracers = document.getElementById('modTracers');
-  const modAimbot = document.getElementById('modAimbot');
-  const modNoClip = document.getElementById('modNoClip');
-  const modSpeed = document.getElementById('modSpeed');
 
   // Tracers group
-  const tracerMaterial = new THREE.LineBasicMaterial({color: 0x00ffff});
-  const tracers = new THREE.Group();
-  scene.add(tracers);
+  const tracerGroup = new THREE.Group();
+  scene.add(tracerGroup);
 
-  // For aimbot target selection
-  function getClosestEnemyToCrosshair() {
+  // Aimbot right mouse hold
+  let rightMouseDown = false;
+  window.addEventListener('mousedown', e => {
+    if(e.button === 2) rightMouseDown = true;
+  });
+  window.addEventListener('mouseup', e => {
+    if(e.button === 2) rightMouseDown = false;
+  });
+  window.addEventListener('contextmenu', e => e.preventDefault());
+
+  // Find closest enemy to center crosshair
+  function getClosestEnemyToCrosshair(){
+    if(enemies.length === 0) return null;
     let closest = null;
-    let closestDist = Infinity;
-    enemies.forEach(enemy => {
-      if (enemy.health <= 0) return;
-      const enemyPos = enemy.mesh.position.clone();
-      const screenPos = enemyPos.project(camera);
-      // Distance from center (0,0)
-      const dist = Math.sqrt(screenPos.x*screenPos.x + screenPos.y*screenPos.y);
-      if (dist < closestDist) {
-        closestDist = dist;
+    let closestAngle = 0.2; // roughly 11.5 degrees max for lock-on
+    const playerPos = controls.getObject().position;
+    const forward = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion).normalize();
+    for(let enemy of enemies){
+      if(enemy.health <= 0) continue;
+      const toEnemy = enemy.mesh.position.clone().sub(playerPos).normalize();
+      const angle = forward.angleTo(toEnemy);
+      if(angle < closestAngle){
+        closestAngle = angle;
         closest = enemy;
       }
-    });
+    }
     return closest;
   }
 
-  // Respawn enemy at random pos
-  function respawnEnemy(enemy) {
-    enemy.health = 100;
-    enemy.mesh.position.set((Math.random()-0.5)*50, 1, (Math.random()-0.5)*50);
+  // ESP Boxes - using box helper
+  const espBoxes = new Map();
+
+  function updateEspBoxes(){
+    for(let enemy of enemies){
+      if(!espBoxes.has(enemy)){
+        const box = new THREE.BoxHelper(enemy.mesh, 0x00ffff);
+        scene.add(box);
+        espBoxes.set(enemy, box);
+      }
+      if(enemy.health <= 0){
+        if(espBoxes.has(enemy)){
+          scene.remove(espBoxes.get(enemy));
+          espBoxes.delete(enemy);
+        }
+      }
+    }
+    for(let [enemy, box] of espBoxes){
+      box.update();
+    }
   }
 
-  // Player shooting and bullets
-  const bullets = [];
-  const bulletSpeed = 50;
-  const bulletGeo = new THREE.SphereGeometry(0.1, 8, 8);
-  const bulletMat = new THREE.MeshBasicMaterial({color: 0xffff00});
+  // Update Tracers
+  function updateTracers(){
+    // Clear old
+    while(tracerGroup.children.length) tracerGroup.remove(tracerGroup.children[0]);
 
-  function shoot() {
-    if (shootCooldown > 0) return;
-    shootCooldown = 0.3;
-    const bullet = new THREE.Mesh(bulletGeo, bulletMat);
-    bullet.position.copy(camera.position);
-    const forward = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion);
-    bullet.userData.velocity = forward.multiplyScalar(bulletSpeed);
-    bullets.push(bullet);
-    scene.add(bullet);
+    if(!modTracers.checked) return;
+
+    const material = new THREE.LineBasicMaterial({color: 0x00ffff});
+    const playerPos = controls.getObject().position.clone();
+
+    for(let enemy of enemies){
+      if(enemy.health <= 0) continue;
+      const points = [];
+      points.push(playerPos);
+      const pos = enemy.mesh.position.clone();
+      pos.y += 1;
+      points.push(pos);
+      const geometry = new THREE.BufferGeometry().setFromPoints(points);
+      const line = new THREE.Line(geometry, material);
+      tracerGroup.add(line);
+    }
   }
 
-  // Collision detection helper
-  function boxIntersectsBox(box1, box2) {
-    return box1.intersectsBox(box2);
-  }
+  // Update function
+  let prevTime = performance.now();
+  let playerHealth = 100;
 
-  // Player collision box size
-  const playerHeight = 1.6;
-  const playerRadius = 0.5;
-
-  // Update loop
-  function animate() {
+  function animate(){
     requestAnimationFrame(animate);
 
     const time = performance.now();
     const delta = (time - prevTime) / 1000;
     prevTime = time;
 
-    // Mod speed hack
-    const baseSpeed = 10;
-    let speed = baseSpeed;
-    if (modSpeed.checked) speed = baseSpeed * 2.5;
+    // Movement velocity damping and gravity
+    velocity.x -= velocity.x * 10.0 * delta;
+    velocity.z -= velocity.z * 10.0 * delta;
+    velocity.y -= 9.8 * 5.0 * delta; // gravity
 
-    // Movement direction
-    direction.z = Number(move.forward) - Number(move.backward);
-    direction.x = Number(move.right) - Number(move.left);
+    // Movement controls
+    let direction = new THREE.Vector3();
+    if(moveForward) direction.z -= 1;
+    if(moveBackward) direction.z += 1;
+    if(moveLeft) direction.x -= 1;
+    if(moveRight) direction.x += 1;
     direction.normalize();
 
-    // Velocity calculations
-    if (!modNoClip.checked) {
-      // Apply gravity
-      velocity.y -= 9.8 * delta;
+    if(direction.length() > 0){
+      velocity.x -= direction.x * speed;
+      velocity.z -= direction.z * speed;
     }
 
-    // Move player
-    if (controls.isLocked === true) {
-      // Apply speed
-      velocity.x -= velocity.x * 10.0 * delta;
-      velocity.z -= velocity.z * 10.0 * delta;
+    // Update position
+    controls.getObject().position.x += velocity.x * delta;
+    controls.getObject().position.y += velocity.y * delta;
+    controls.getObject().position.z += velocity.z * delta;
 
-      velocity.x += direction.x * speed * delta;
-      velocity.z += direction.z * speed * delta;
+    // Simple ground collision
+    if(controls.getObject().position.y < playerHeight){
+      velocity.y = 0;
+      controls.getObject().position.y = playerHeight;
+      canJump = true;
+    }
 
-      controls.moveRight(velocity.x * delta);
-      controls.moveForward(velocity.z * delta);
-
-      controls.getObject().position.y += velocity.y * delta;
-
-      // Floor collision
-      if (controls.getObject().position.y < playerHeight) {
-        velocity.y = 0;
-        controls.getObject().position.y = playerHeight;
-        canJump = true;
-      }
-
-      // Obstacle collisions if no-clip off
-      if (!modNoClip.checked) {
-        const playerPos = controls.getObject().position;
-
-        // Player bounding box (approximate as box centered at player's position)
-        const playerBoxMin = new THREE.Vector3(playerPos.x - playerRadius, playerPos.y - playerHeight, playerPos.z - playerRadius);
-        const playerBoxMax = new THREE.Vector3(playerPos.x + playerRadius, playerPos.y, playerPos.z + playerRadius);
-        playerBox.set(playerBoxMin, playerBoxMax);
-
-        for (const obs of obstacles) {
-          const obsBox = new THREE.Box3().setFromObject(obs);
-          if (playerBox.intersectsBox(obsBox)) {
-            // Undo movement
-            controls.moveRight(-velocity.x * delta);
-            controls.moveForward(-velocity.z * delta);
-            break;
-          }
-        }
+    // Simple collision with obstacles
+    playerBox.setFromCenterAndSize(controls.getObject().position, new THREE.Vector3(1,playerHeight*2,1));
+    for(let obstacle of obstacles){
+      const obsBox = new THREE.Box3().setFromObject(obstacle);
+      if(playerBox.intersectsBox(obsBox)){
+        // Push player out on each axis
+        if(controls.getObject().position.x < obsBox.min.x) controls.getObject().position.x = obsBox.min.x - 0.6;
+        else if(controls.getObject().position.x > obsBox.max.x) controls.getObject().position.x = obsBox.max.x + 0.6;
+        if(controls.getObject().position.z < obsBox.min.z) controls.getObject().position.z = obsBox.min.z - 0.6;
+        else if(controls.getObject().position.z > obsBox.max.z) controls.getObject().position.z = obsBox.max.z + 0.6;
       }
     }
 
     // Update bullets
-    for (let i=bullets.length-1; i>=0; i--) {
-      const b = bullets[i];
-      b.position.addScaledVector(b.userData.velocity, delta);
-
-      // Remove bullets too far away
-      if (b.position.distanceTo(camera.position) > 100) {
-        scene.remove(b);
-        bullets.splice(i,1);
-        continue;
-      }
-
-      // Check bullet collisions with enemies
-      const bulletBox = new THREE.Box3().setFromCenterAndSize(b.position, new THREE.Vector3(0.2,0.2,0.2));
-      for (const enemy of enemies) {
-        if (enemy.health <= 0) continue;
-        const enemyBox = new THREE.Box3().setFromObject(enemy.mesh);
-        if (bulletBox.intersectsBox(enemyBox)) {
-          enemy.health -= 34;
-          enemy.updateHealthBar();
-          if (enemy.health <= 0) {
-            // Respawn after short delay
-            setTimeout(() => respawnEnemy(enemy), 5000);
-          }
-          scene.remove(b);
-          bullets.splice(i, 1);
-          break;
-        }
-      }
+    for(let i = bullets.length-1; i>=0; i--){
+      bullets[i].update();
+      if(!bullets[i].alive) bullets.splice(i,1);
     }
 
-    // Enemy AI follow player
-    for (const enemy of enemies) {
-      if (enemy.health <= 0) continue;
-      const pos = enemy.mesh.position;
-      const playerPos = controls.getObject().position;
-
-      // Direction to player (ignore y)
-      const dir = new THREE.Vector3(playerPos.x - pos.x, 0, playerPos.z - pos.z);
-      if (dir.length() > 0.01) {
-        dir.normalize();
-        enemy.mesh.position.addScaledVector(dir, delta * 2.5);
-      }
-
-      // Check collision with player - damage health
-      const enemyBox = new THREE.Box3().setFromObject(enemy.mesh);
-
-      const playerBoxMin = new THREE.Vector3(playerPos.x - playerRadius, playerPos.y - playerHeight, playerPos.z - playerRadius);
-      const playerBoxMax = new THREE.Vector3(playerPos.x + playerRadius, playerPos.y, playerPos.z + playerRadius);
-      playerBox.set(playerBoxMin, playerBoxMax);
-
-      if (playerBox.intersectsBox(enemyBox)) {
-        playerHealth -= 10 * delta;
-        if (playerHealth < 0) playerHealth = 0;
-      }
-    }
-
-    // Mods: ESP boxes + name tags + health bars
-    enemies.forEach(enemy => {
-      enemy.nameTagDiv.style.display = modEsp.checked ? 'block' : 'none';
-      enemy.healthBarDiv.style.display = modEsp.checked ? 'block' : 'none';
-
-      if (modEsp.checked && enemy.health > 0) {
-        enemy.updateNameTag(camera);
-        enemy.updateHealthBar();
-      }
-    });
-
-    // Tracers
-    tracers.clear();
-    if (modTracers.checked) {
-      const material = new THREE.LineBasicMaterial({color: 0x00ffff});
+    // Update ESP boxes & nametags if enabled
+    if(modEsp.checked){
+      updateEspBoxes();
       enemies.forEach(enemy => {
-        if (enemy.health <= 0) return;
-        const points = [];
-        points.push(camera.position.clone());
-        const pos = enemy.mesh.position.clone();
-        pos.y += 1; // aim near head
-        points.push(pos);
-        const geometry = new THREE.BufferGeometry().setFromPoints(points);
-        const line = new THREE.Line(geometry, material);
-        tracers.add(line);
+        enemy.nameTagDiv.style.display = 'block';
+        enemy.healthBarDiv.style.display = 'block';
+        enemy.updateNameTag(camera);
       });
+    } else {
+      enemies.forEach(enemy => {
+        enemy.nameTagDiv.style.display = 'none';
+        enemy.healthBarDiv.style.display = 'none';
+      });
+      for(let [enemy, box] of espBoxes){
+        scene.remove(box);
+      }
+      espBoxes.clear();
     }
 
-    // Aimbot - if enabled and right mouse button held
-    if (modAimbot.checked && rightMouseDown) {
-      const target = getClosestEnemyToCrosshair();
-      if (target && target.health > 0) {
-        const targetPos = target.mesh.position.clone();
-        targetPos.y += 1.2; // aim near head
-        const dir = targetPos.clone().sub(camera.position).normalize();
+    // Update tracers if enabled
+    updateTracers();
 
-        // Smoothly rotate camera to target direction
+    // Aimbot
+    if(modAimbot.checked && rightMouseDown){
+      const target = getClosestEnemyToCrosshair();
+      if(target && target.health > 0){
+        const targetPos = target.mesh.position.clone();
+        targetPos.y += 1.5; // aim near head
+        const dir = targetPos.clone().sub(controls.getObject().position).normalize();
+
+        // Smooth rotate camera toward target direction
         const currentDir = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion);
         const lerpDir = currentDir.lerp(dir, 0.15).normalize();
 
-        // Convert direction back to rotation
+        // Calculate pitch and yaw
         const pitch = Math.asin(lerpDir.y);
         const yaw = Math.atan2(lerpDir.x, -lerpDir.z);
 
         controls.getObject().rotation.y = yaw;
         camera.rotation.x = pitch;
 
-        // Auto-shoot
+        // Auto shoot
         shoot();
       }
     }
 
-    // Render
     renderer.render(scene, camera);
   }
 
-  // Mouse events
-  let rightMouseDown = false;
-  window.addEventListener('mousedown', e => {
-    if (e.button === 2) rightMouseDown = true;
-    if (e.button === 0) shoot();
-  });
-  window.addEventListener('mouseup', e => {
-    if (e.button === 2) rightMouseDown = false;
-  });
+  animate();
 
-  // Prevent context menu on right click
-  window.addEventListener('contextmenu', e => e.preventDefault());
-
-  // On window resize
+  // Resize handling
   window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth/window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
-
-  // Start animation loop
-  animate();
-
-  // Lock pointer on start for gameplay
-  controls.lock();
-
-  // Multiplayer with NetplayJS
-  const np = new Netplay({
-    host: 'wss://emulation12.netplay.live',
-    room: 'emu-fps',
-    playerName: `Player${Math.floor(Math.random()*1000)}`,
-  });
-
-  np.on('connect', () => {
-    console.log('Connected to multiplayer server');
-  });
-
-  // Track other players, map of id -> Enemy
-  np.on('stateUpdate', state => {
-    // state example: {players: {id: {pos: [x,y,z], rot: [x,y,z]}, ...}}
-    const playersState = state.players || {};
-    // Remove disconnected players
-    for (const [id, enemy] of players.entries()) {
-      if (!playersState[id]) {
-        enemy.dispose();
-        players.delete(id);
-      }
-    }
-    // Update or add players
-    for (const id in playersState) {
-      if (id === np.id) continue; // skip self
-      const pdata = playersState[id];
-      if (!players.has(id)) {
-        // Add new player as enemy box
-        const e = new Enemy(`MP${id}`, true);
-        players.set(id, e);
-      }
-      const e = players.get(id);
-      e.mesh.position.set(pdata.pos[0], pdata.pos[1], pdata.pos[2]);
-      e.mesh.rotation.set(pdata.rot[0], pdata.rot[1], pdata.rot[2]);
-      e.health = pdata.health || 100;
-      e.updateHealthBar();
-
-      e.nameTagDiv.style.display = modEsp.checked ? 'block' : 'none';
-      e.healthBarDiv.style.display = modEsp.checked ? 'block' : 'none';
-      if (modEsp.checked) e.updateNameTag(camera);
-    }
-  });
-
-  // Send player state to server
-  function sendPlayerState() {
-    if (!np.connected) return;
-    const pos = controls.getObject().position;
-    const rot = controls.getObject().rotation;
-    np.sendState({
-      pos: [pos.x, pos.y, pos.z],
-      rot: [rot.x, rot.y, rot.z],
-      health: playerHealth,
-    });
-  }
-
-  setInterval(sendPlayerState, 50);
 
 })();
 </script>
