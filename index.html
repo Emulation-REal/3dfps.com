@@ -289,19 +289,23 @@
     const tracerLines = [];
 
     function updateESP() {
-      // Remove old tracer lines
       tracerLines.forEach(line => scene.remove(line));
       tracerLines.length = 0;
 
       if (!mods.tracers) return;
 
+      const start = controls.getObject().position.clone().add(new THREE.Vector3(0, 1.5, 0));
       for (const id in remotePlayers) {
         const enemy = remotePlayers[id];
-        // Red line from camera position to player position
-        const points = [camera.position.clone(), enemy.mesh.position.clone()];
+        const end = enemy.mesh.position.clone().add(new THREE.Vector3(0, 1, 0));
+        const points = [start, end];
         const geometry = new THREE.BufferGeometry().setFromPoints(points);
-        const material = new THREE.LineBasicMaterial({ color: 0xff0000 });
+        const material = new THREE.LineBasicMaterial({
+          color: 0xff0000,
+          depthTest: false
+        });
         const line = new THREE.Line(geometry, material);
+        line.renderOrder = 999;
         tracerLines.push(line);
         scene.add(line);
       }
