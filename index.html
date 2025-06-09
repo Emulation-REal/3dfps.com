@@ -76,7 +76,7 @@
   <script>
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-    const renderer = new THREE.WebGLRenderer();
+    const renderer = new THREE.WebGLRenderer({antialias: true});
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
 
@@ -127,6 +127,7 @@
       new THREE.MeshStandardMaterial({ color: 0x888877 })
     );
     floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
     scene.add(floor);
 
     const containerColors = [0x0055ff, 0xff3333, 0x33cc33, 0xffff33];
@@ -135,6 +136,8 @@
       const color = containerColors[i % containerColors.length];
       const box = new THREE.Mesh(new THREE.BoxGeometry(5, 6, 2), new THREE.MeshStandardMaterial({ color }));
       box.position.set((Math.random() - 0.5) * 100, 3, (Math.random() - 0.5) * 100);
+      box.castShadow = true;
+      box.receiveShadow = true;
       scene.add(box);
       obstacles.push(box);
     }
@@ -160,16 +163,15 @@
     }
 
     function createRemoteMesh() {
-      // Create a box with a front-facing arrow (cone)
+      // Box player with front arrow (cone)
       const group = new THREE.Group();
 
       const body = new THREE.Mesh(
         new THREE.BoxGeometry(1, 2, 1),
         new THREE.MeshStandardMaterial({ color: 0x0000ff })
       );
-      body.position.y = 1; // ground aligned
+      body.position.y = 1;
 
-      // Front arrow
       const cone = new THREE.Mesh(
         new THREE.ConeGeometry(0.3, 0.7, 8),
         new THREE.MeshStandardMaterial({ color: 0xffaa00 })
@@ -200,9 +202,7 @@
             remotePlayers[conn.peer] = { mesh, health: 100 };
             updatePlayerList();
           }
-          // Set grounded y position to 1 (player height half)
           remotePlayers[conn.peer].mesh.position.set(data.x, 1, data.z);
-          // If rotation info sent, update rotation (optional)
           if (data.rotationY !== undefined) {
             remotePlayers[conn.peer].mesh.rotation.y = data.rotationY;
           }
@@ -290,7 +290,7 @@
     }
 
     // === MOD MENU ===
-    let mods = { tracers: false, aimbot: false };
+    let mods = { tracers: false, aimbot: false, esp: false };
     const modMenu = document.createElement("div");
     modMenu.style.position = "absolute";
     modMenu.style.top = "50px";
@@ -304,12 +304,16 @@
     modMenu.style.zIndex = "99";
     modMenu.innerHTML = `
       <strong>Mod Menu</strong><br>
-      <label><input type="checkbox" id="tracersToggle"> Tracers</label><br>
-      <label><input type="checkbox" id="aimbotToggle"> Aimbot</label>
+      <label><input type="checkbox" id="espToggle"> ESP (Green Box)</label><br>
+      <label><input type="checkbox" id="tracersToggle"> Tracers (Red Lines)</label><br>
+      <label><input type="checkbox" id="aimbotToggle"> Aimbot (Right Click)</label>
     `;
     document.body.appendChild(modMenu);
+
+    document.getElementById("espToggle").onchange = e => mods.esp = e.target.checked;
     document.getElementById("tracersToggle").onchange = e => mods.tracers = e.target.checked;
     document.getElementById("aimbotToggle").onchange = e => mods.aimbot = e.target.checked;
+
     document.addEventListener("keydown", e => {
       if (e.key === ";") modMenu.style.display = modMenu.style.display === "none" ? "block" : "none";
     });
@@ -317,47 +321,43 @@
     const tracerLines = [];
     const espBoxes = [];
 
-    let rainbowHue = 0;
-    function rainbowColor() {
-      rainbowHue = (rainbowHue + 1) % 360;
-      return new THREE.Color(`hsl(${rainbowHue},100%,50%)`);
-    }
-
-    function updateESP() {
-      // Remove old tracers
+    function clearHelpers() {
       tracerLines.forEach(line => scene.remove(line));
       tracerLines.length = 0;
-      // Remove old ESP boxes
       espBoxes.forEach(box => scene.remove(box));
       espBoxes.length = 0;
+    }
 
-      if (!mods.tracers) return;
+    function updateESPAndTracers() {
+      clearHelpers();
 
-      // Starting position is camera position + eye height (1.6)
-      const start = controls.getObject().position.clone().add(new THREE.Vector3(0, 1.6, 0));
+      const start = controls.getObject().position.clone().add(new THREE.Vector3(0, 1.6, 0)); // eye height
 
       for (const id in remotePlayers) {
         const enemy = remotePlayers[id];
-        // End position slightly above player center
-        const end = enemy.mesh.position.clone().add(new THREE.Vector3(0, 1, 0));
 
-        // Tracer line geometry
-        const points = [start, end];
-        const geometry = new THREE.BufferGeometry().setFromPoints(points);
-        const material = new THREE.LineBasicMaterial({
-          color: 0xff0000,
-          depthTest: false
-        });
-        const line = new THREE.Line(geometry, material);
-        line.renderOrder = 999;
-        tracerLines.push(line);
-        scene.add(line);
+        // ESP boxes: green wireframe visible through walls
+        if (mods.esp) {
+          // Create a box helper with green color and disable depth test to see through walls
+          const boxHelper = new THREE.BoxHelper(enemy.mesh);
+          boxHelper.material.color.set(0x00ff00);
+          boxHelper.material.depthTest = false;
+          boxHelper.renderOrder = 999;
+          espBoxes.push(boxHelper);
+          scene.add(boxHelper);
+        }
 
-        // Rainbow ESP box
-        const boxHelper = new THREE.BoxHelper(enemy.mesh, rainbowColor());
-        boxHelper.renderOrder = 998;
-        espBoxes.push(boxHelper);
-        scene.add(boxHelper);
+        // Tracers: red lines from camera to player visible through walls
+        if (mods.tracers) {
+          const end = enemy.mesh.position.clone().add(new THREE.Vector3(0, 1, 0)); // approx center of player
+          const points = [start, end];
+          const geometry = new THREE.BufferGeometry().setFromPoints(points);
+          const material = new THREE.LineBasicMaterial({ color: 0xff0000, depthTest: false });
+          const line = new THREE.Line(geometry, material);
+          line.renderOrder = 998;
+          tracerLines.push(line);
+          scene.add(line);
+        }
       }
     }
 
@@ -416,7 +416,7 @@
         else if (b.position.length() > 200) { scene.remove(b); bullets.splice(i, 1); }
       });
 
-      updateESP();
+      updateESPAndTracers();
 
       if (mods.aimbot && isAiming) {
         let closest = null, minDist = Infinity;
