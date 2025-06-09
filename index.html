@@ -6,59 +6,14 @@
   <style>
     body { margin: 0; overflow: hidden; }
     canvas { display: block; }
-    #hud, #crosshair, #status, #playerList, #chat, #chatInput {
-      position: absolute;
-      font-family: sans-serif;
-      z-index: 10;
-    }
+    /* HUD styles unchanged… */
+    #hud, #crosshair, #status, #playerList, #chat, #chatInput { position: absolute; font-family: sans-serif; z-index: 10; }
     #hud { top: 10px; left: 10px; font-size: 16px; color: white; }
-    #crosshair {
-      top: 50%; left: 50%;
-      transform: translate(-50%, -50%);
-      font-size: 14px; color: white;
-      pointer-events: none;
-    }
-    #status {
-      top: 10px; right: 10px;
-      font-size: 14px;
-      color: yellow;
-      background: rgba(0, 0, 0, 0.5);
-      padding: 6px;
-      border-radius: 6px;
-    }
-    #playerList {
-      top: 50px; right: 10px;
-      color: lightgreen;
-      font-size: 13px;
-      background: rgba(0, 0, 0, 0.5);
-      padding: 5px;
-      border-radius: 6px;
-      max-width: 150px;
-    }
-    #chat {
-      bottom: 10px; left: 10px;
-      width: 300px;
-      max-height: 150px;
-      overflow-y: auto;
-      background: rgba(0,0,0,0.7);
-      color: white;
-      padding: 8px;
-      border-radius: 6px;
-      font-size: 14px;
-      user-select: none;
-    }
-    #chatInput {
-      bottom: 170px; left: 10px;
-      width: 300px;
-      display: none;
-      font-size: 14px;
-      padding: 6px;
-      border-radius: 6px;
-      border: none;
-      outline: none;
-      background: rgba(255,255,255,0.9);
-      color: black;
-    }
+    #crosshair { top:50%; left:50%; transform: translate(-50%, -50%); font-size:14px; color:white; pointer-events:none; }
+    #status { top:10px; right:10px; font-size:14px; color:yellow; background:rgba(0,0,0,0.5); padding:6px; border-radius:6px; }
+    #playerList { top:50px; right:10px; color:lightgreen; font-size:13px; background:rgba(0,0,0,0.5); padding:5px; border-radius:6px; max-width:150px; }
+    #chat { bottom:10px; left:10px; width:300px; max-height:150px; overflow-y:auto; background:rgba(0,0,0,0.7); color:white; padding:8px; border-radius:6px; font-size:14px; user-select:none; }
+    #chatInput { bottom:170px; left:10px; width:300px; display:none; font-size:14px; padding:6px; border-radius:6px; border:none; outline:none; background:rgba(255,255,255,0.9); color:black; }
   </style>
 </head>
 <body>
@@ -74,10 +29,10 @@
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.4.7/dist/peerjs.min.js"></script>
 
   <script>
-    // ——— existing setup … unchanged ———
+    // — Existing Setup (unchanged) —
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-    const renderer = new THREE.WebGLRenderer({antialias: true});
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
 
@@ -131,11 +86,10 @@
     floor.receiveShadow = true;
     scene.add(floor);
 
-    const containerColors = [0x0055ff, 0xff3333, 0x33cc33, 0xffff33];
+    const colors = [0x0055ff, 0xff3333, 0x33cc33, 0xffff33];
     const obstacles = [];
     for (let i = 0; i < 15; i++) {
-      const color = containerColors[i % containerColors.length];
-      const box = new THREE.Mesh(new THREE.BoxGeometry(5, 6, 2), new THREE.MeshStandardMaterial({ color }));
+      const box = new THREE.Mesh(new THREE.BoxGeometry(5, 6, 2), new THREE.MeshStandardMaterial({ color: colors[i % colors.length] }));
       box.position.set((Math.random() - 0.5) * 100, 3, (Math.random() - 0.5) * 100);
       box.castShadow = true;
       box.receiveShadow = true;
@@ -144,10 +98,10 @@
     }
 
     function collides(pos) {
-      for (let o of obstacles) {
-        if (Math.abs(pos.x - o.position.x) < 3 && Math.abs(pos.z - o.position.z) < 3) return true;
-      }
-      return false;
+      return obstacles.some(o =>
+        Math.abs(pos.x - o.position.x) < 3 &&
+        Math.abs(pos.z - o.position.z) < 3
+      );
     }
 
     camera.position.set(0, 2, 10);
@@ -165,26 +119,19 @@
 
     function createRemoteMesh() {
       const group = new THREE.Group();
-      const body = new THREE.Mesh(
-        new THREE.BoxGeometry(1, 2, 1),
-        new THREE.MeshStandardMaterial({ color: 0x0000ff })
-      );
+      const body = new THREE.Mesh(new THREE.BoxGeometry(1, 2, 1), new THREE.MeshStandardMaterial({ color: 0x0000ff }));
       body.position.y = 1;
-      const cone = new THREE.Mesh(
-        new THREE.ConeGeometry(0.3, 0.7, 8),
-        new THREE.MeshStandardMaterial({ color: 0xffaa00 })
-      );
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.7, 8), new THREE.MeshStandardMaterial({ color: 0xffaa00 }));
       cone.position.set(0, 2, 0.75);
       cone.rotation.x = Math.PI;
-      group.add(body);
-      group.add(cone);
+      group.add(body, cone);
       return group;
     }
 
     function addChatMessage(sender, message) {
-      const div = document.createElement('div');
-      div.textContent = sender + ": " + message;
-      chatDisplay.appendChild(div);
+      const d = document.createElement('div');
+      d.textContent = sender + ": " + message;
+      chatDisplay.appendChild(d);
       chatDisplay.scrollTop = chatDisplay.scrollHeight;
     }
 
@@ -199,14 +146,11 @@
             updatePlayerList();
           }
           remotePlayers[conn.peer].mesh.position.set(data.x, 1, data.z);
-          if (data.rotationY !== undefined) {
+          if (data.rotationY !== undefined)
             remotePlayers[conn.peer].mesh.rotation.y = data.rotationY;
-          }
-        } else if (data.type === 'hit') {
-          if (!isDead) {
-            health -= 25;
-            if (health <= 0) dieAndRespawn();
-          }
+        } else if (data.type === 'hit' && !isDead) {
+          health -= 25;
+          if (health <= 0) dieAndRespawn();
         } else if (data.type === 'chat') {
           addChatMessage(conn.peer, data.message);
         }
@@ -223,14 +167,9 @@
 
     function startPeerAsHost() {
       peer = new Peer(ROOM_ID, { debug: 1 });
-      peer.on('open', () => {
-        statusDisplay.textContent = "Connected as Host";
-        isHost = true;
-      });
-      peer.on('connection', conn => setupConnection(conn));
-      peer.on('error', err => {
-        if (err.type === 'unavailable-id') startPeerAsClient();
-      });
+      peer.on('open', () => { statusDisplay.textContent = "Connected as Host"; isHost = true });
+      peer.on('connection', setupConnection);
+      peer.on('error', err => { if (err.type === 'unavailable-id') startPeerAsClient(); });
     }
 
     function startPeerAsClient() {
@@ -247,7 +186,8 @@
     function sendChatMessage(message) {
       addChatMessage("You", message);
       for (const id in connections) {
-        if (connections[id].open) connections[id].send({ type: 'chat', message });
+        if (connections[id].open)
+          connections[id].send({ type: 'chat', message });
       }
     }
 
@@ -261,14 +201,14 @@
     }
 
     document.addEventListener('click', () => {
-      if (isDead || chatInput.style.display === "block") return;
-      spawnBullet();
+      if (!isDead && chatInput.style.display !== "block")
+        spawnBullet();
     });
 
-    function checkBulletHit(bullet) {
+    function checkBulletHit(b) {
       for (const id in remotePlayers) {
-        const player = remotePlayers[id];
-        if (bullet.position.distanceTo(player.mesh.position) < 1.5) {
+        const p = remotePlayers[id];
+        if (b.position.distanceTo(p.mesh.position) < 1.5) {
           connections[id]?.send({ type: 'hit' });
           return true;
         }
@@ -284,63 +224,57 @@
       setTimeout(() => {
         isDead = false;
         health = 100;
-        healthDisplay.textContent = health;
+        healthDisplay.textContent = 100;
         controls.getObject().position.set(Math.random() * 20 - 10, 1.6, Math.random() * 20 - 10);
       }, 3000);
     }
 
-    // ——— MOD MENU (unchanged) … ———
+    // — Mod Menu (unchanged) …
     let mods = { tracers: false, aimbot: false, esp: false, triggerbot: false };
     const modMenu = document.createElement("div");
-    modMenu.style.position = "absolute";
-    modMenu.style.top = "50px";
-    modMenu.style.left = "50px";
-    modMenu.style.background = "rgba(0,0,0,0.8)";
-    modMenu.style.color = "white";
-    modMenu.style.padding = "10px";
-    modMenu.style.border = "2px solid white";
-    modMenu.style.borderRadius = "8px";
-    modMenu.style.display = "none";
-    modMenu.style.zIndex = "99";
+    modMenu.style.cssText = "position:absolute;top:50px;left:50px;background:rgba(0,0,0,0.8);color:white;padding:10px;border:2px solid white;border-radius:8px;display:none;z-index:99;";
     modMenu.innerHTML = `
       <strong>Mod Menu</strong><br>
-      <label><input type="checkbox" id="espToggle"> ESP (Green Box)</label><br>
-      <label><input type="checkbox" id="tracersToggle"> Tracers (Red Lines)</label><br>
-      <label><input type="checkbox" id="aimbotToggle"> Aimbot (Right Click)</label><br>
+      <label><input type="checkbox" id="espToggle"> ESP</label><br>
+      <label><input type="checkbox" id="tracersToggle"> Tracers</label><br>
+      <label><input type="checkbox" id="aimbotToggle"> Aimbot</label><br>
       <label><input type="checkbox" id="triggerbotToggle"> Triggerbot</label>
     `;
     document.body.appendChild(modMenu);
-    document.getElementById("espToggle").onchange = e => mods.esp = e.target.checked;
-    document.getElementById("tracersToggle").onchange = e => mods.tracers = e.target.checked;
-    document.getElementById("aimbotToggle").onchange = e => mods.aimbot = e.target.checked;
-    document.getElementById("triggerbotToggle").onchange = e => mods.triggerbot = e.target.checked;
-    document.addEventListener("keydown", e => {
-      if (e.key === ";") modMenu.style.display = modMenu.style.display === "none" ? "block" : "none";
+    ["esp","tracers","aimbot","triggerbot"].forEach(name => {
+      const el = document.getElementById(name + "Toggle");
+      el.onchange = e => mods[name] = e.target.checked;
+    });
+    document.addEventListener('keydown', e => {
+      if (e.key === ";")
+        modMenu.style.display = modMenu.style.display === "none" ? "block" : "none";
     });
 
+    // Visual helpers
     const tracerLines = [], espBoxes = [];
     function clearHelpers() {
       tracerLines.forEach(l => scene.remove(l)); tracerLines.length = 0;
       espBoxes.forEach(b => scene.remove(b)); espBoxes.length = 0;
     }
+
     function updateESPAndTracers() {
       clearHelpers();
-      const start = controls.getObject().position.clone().add(new THREE.Vector3(0,1.6,0));
+      const eye = controls.getObject().position.clone().add(new THREE.Vector3(0, 1.6, 0));
       for (const id in remotePlayers) {
         const enemy = remotePlayers[id];
         if (mods.esp) {
-          const bh = new THREE.BoxHelper(enemy.mesh);
-          bh.material.color.set(0x00ff00);
-          bh.material.depthTest = false;
-          bh.renderOrder = 999;
-          espBoxes.push(bh);
-          scene.add(bh);
+          const box = new THREE.BoxHelper(enemy.mesh);
+          box.material.color.set(0x00ff00);
+          box.material.depthTest = false;
+          box.renderOrder = 999;
+          espBoxes.push(box);
+          scene.add(box);
         }
         if (mods.tracers) {
-          const end = enemy.mesh.position.clone().add(new THREE.Vector3(0,1,0));
-          const geo = new THREE.BufferGeometry().setFromPoints([start,end]);
-          const mat = new THREE.LineBasicMaterial({ color:0xff0000, depthTest:false });
-          const line = new THREE.Line(geo,mat);
+          const endpoint = enemy.mesh.position.clone().add(new THREE.Vector3(0,1,0));
+          const lineGeo = new THREE.BufferGeometry().setFromPoints([eye, endpoint]);
+          const lineMat = new THREE.LineBasicMaterial({ color:0xff0000, depthTest:false });
+          const line = new THREE.Line(lineGeo, lineMat);
           line.renderOrder = 998;
           tracerLines.push(line);
           scene.add(line);
@@ -349,151 +283,135 @@
     }
 
     let isAiming = false;
-    document.addEventListener("mousedown", e => { if (e.button===2) isAiming=true; });
-    document.addEventListener("mouseup",   e => { if (e.button===2) isAiming=false; });
+    document.addEventListener('mousedown', e => { if (e.button === 2) isAiming = true; });
+    document.addEventListener('mouseup',   e => { if (e.button === 2) isAiming = false; });
 
-    // ——— Gamepad support starts here ———
+    // — Gamepad configuration (movement + look updates included) —
     let gamepadConnected = false;
-    let shootCooldown = 0;
     const lookSpeed = 0.05;
+    let shootCooldown = 0;
 
-    window.addEventListener("gamepadconnected", () => {
-      gamepadConnected = true;
-      console.log("Gamepad connected");
-    });
-    window.addEventListener("gamepaddisconnected", () => {
-      gamepadConnected = false;
-      console.log("Gamepad disconnected");
-    });
-    // ——— Gamepad support ends here ———
+    window.addEventListener("gamepadconnected", () => gamepadConnected = true);
+    window.addEventListener("gamepaddisconnected", () => gamepadConnected = false);
 
-    // Jump physics vars
-    let isJumping = false;
-    let velocityY = 0;
-
-    const dirVec = new THREE.Vector3();
-
-    function getClosestEnemy() {
-      let closest = null, minDist = Infinity;
-      for (const id in remotePlayers) {
-        const d = camera.position.distanceTo(remotePlayers[id].mesh.position);
-        if (d < minDist) { minDist = d; closest = remotePlayers[id]; }
-      }
-      return closest;
-    }
-    function enemyInCrosshair(enemy) {
-      if (!enemy) return false;
-      const pos = enemy.mesh.position.clone();
-      pos.y += 1;
-      const vec = pos.project(camera);
-      const m = 0.05;
-      return vec.x > -m && vec.x < m && vec.y > -m && vec.y < m;
+    // Assumed: Right stick axes[2]=lookHorizontal, axes[3]=lookVertical
+    function applyGamepadLook(gp) {
+      const rx = gp.axes[2] * lookSpeed;
+      const ry = gp.axes[3] * lookSpeed;
+      controls.getObject().rotation.y -= rx; // yaw
+      camera.rotation.x -= ry;              // pitch
+      camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, camera.rotation.x));
     }
 
     function animate() {
       requestAnimationFrame(animate);
 
-      // Gamepad read
-      let gp = null;
-      if (gamepadConnected) {
-        const pads = navigator.getGamepads();
-        gp = pads[0];
-      }
+      const gp = (gamepadConnected ? navigator.getGamepads()[0] : null);
 
-      if (!isDead && chatInput.style.display!=="block") {
-        // reset movement vector
-        dirVec.set(0,0,0);
+      if (!isDead && chatInput.style.display !== "block") {
+        const dir = new THREE.Vector3();
 
-        // ——— Keyboard WASD ———
-        if (keys.KeyW) dirVec.z -= 1;
-        if (keys.KeyS) dirVec.z += 1;
-        if (keys.KeyA) dirVec.x -= 1;
-        if (keys.KeyD) dirVec.x += 1;
+        if (keys.KeyW) dir.z -= 1;
+        if (keys.KeyS) dir.z += 1;
+        if (keys.KeyA) dir.x -= 1;
+        if (keys.KeyD) dir.x += 1;
 
-        // ——— Gamepad left stick ———
         if (gp) {
-          dirVec.x += gp.axes[0];
-          dirVec.z += gp.axes[1];
+          dir.x += gp.axes[0];
+          dir.z += gp.axes[1];
         }
 
-        // normalize & apply
-        dirVec.normalize().applyQuaternion(camera.quaternion);
-        dirVec.y = 0;
-        let nextPos = controls.getObject().position.clone().add(dirVec.multiplyScalar(0.2));
+        dir.normalize().applyQuaternion(camera.quaternion);
+        dir.y = 0;
+        const next = controls.getObject().position.clone().add(dir.multiplyScalar(0.2));
 
-        // ——— Jump: Space or Gamepad “A” (button 0) ———
         if ((keys.Space || (gp && gp.buttons[0].pressed)) && !isJumping) {
           velocityY = 0.2;
           isJumping = true;
         }
-        velocityY -= 0.01; // gravity
-        nextPos.y += velocityY;
-        if (nextPos.y <= 1.6) {
-          nextPos.y = 1.6;
+
+        velocityY -= 0.01;
+        next.y += velocityY;
+        if (next.y <= 1.6) {
+          next.y = 1.6;
           velocityY = 0;
           isJumping = false;
         }
 
-        if (!collides(nextPos)) controls.getObject().position.copy(nextPos);
+        if (!collides(next)) controls.getObject().position.copy(next);
 
-        // broadcast position + yaw
         for (const id in connections) {
-          const c = connections[id];
-          if (c.open) {
+          const conn = connections[id];
+          if (conn.open) {
             const p = controls.getObject().position;
-            c.send({ type:'position', x:p.x, y:p.y, z:p.z, rotationY: controls.getObject().rotation.y });
+            conn.send({ type:'position', x:p.x, y:p.y, z:p.z, rotationY:controls.getObject().rotation.y });
           }
         }
+
+        if (gp) applyGamepadLook(gp);
       }
 
-      // ——— Bullets movement & hits ———
       bullets.forEach((b,i) => {
         b.position.add(b.direction.clone().multiplyScalar(0.5));
         if (checkBulletHit(b)) {
           scene.remove(b);
           bullets.splice(i,1);
-        } else if (b.position.length()>200) {
+        } else if (b.position.length() > 200) {
           scene.remove(b);
           bullets.splice(i,1);
         }
       });
 
-      // ——— ESP / Tracers ———
       updateESPAndTracers();
 
-      // ——— Aimbot ———
+      // Aimbot
       if (mods.aimbot && isAiming) {
-        const enemy = getClosestEnemy();
-        if (enemy) {
-          const tp = enemy.mesh.position.clone().add(new THREE.Vector3(0,1,0));
-          const dir = tp.sub(camera.position).normalize();
+        const e = Object.values(remotePlayers).reduce((best, rp) => {
+          const dist = camera.position.distanceTo(rp.mesh.position);
+          return dist < (best.dist ?? Infinity) ? { rp, dist } : best;
+        }, null);
+        if (e?.rp) {
+          const tgt = e.rp.mesh.position.clone().add(new THREE.Vector3(0,1,0));
+          const dir = tgt.sub(camera.position).normalize();
           const tq = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,-1), dir);
           camera.quaternion.slerp(tq, 0.2);
           controls.getObject().quaternion.copy(camera.quaternion);
         }
       }
 
-      // ——— Triggerbot ———
-      if (mods.triggerbot && !isDead && chatInput.style.display!=="block") {
-        const enemy = getClosestEnemy();
-        if (enemy && enemyInCrosshair(enemy) && !triggerbotCooldown) {
-          spawnBullet();
-          triggerbotCooldown = 20;
+      // Triggerbot
+      if (mods.triggerbot && !isDead && chatInput.style.display !== "block") {
+        const close = Object.values(remotePlayers).reduce((best, rp) => {
+          const d = camera.position.distanceTo(rp.mesh.position);
+          return d < (best.dist ?? Infinity) ? { rp, dist: d } : best;
+        }, null);
+        if (close?.rp) {
+          const pos = close.rp.mesh.position.clone();
+          pos.y += 1;
+          const vec = pos.project(camera);
+          if (Math.abs(vec.x) < 0.05 && Math.abs(vec.y) < 0.05 && !triggerbotCooldown) {
+            spawnBullet();
+            triggerbotCooldown = 20;
+          }
         }
       }
       if (triggerbotCooldown) triggerbotCooldown--;
 
-      // ——— Gamepad shoot (RT = button 7) ———
-      if (gp && gp.buttons[7].pressed && !isDead && chatInput.style.display!=="block" && shootCooldown===0) {
+      // Gamepad shoot (RT)
+      if (gp && gp.buttons[7].pressed && shootCooldown === 0 && !isDead && chatInput.style.display !== "block") {
         spawnBullet();
-        shootCooldown = 15; // cooldown frames
+        shootCooldown = 15;
       }
       if (shootCooldown) shootCooldown--;
 
       renderer.render(scene, camera);
       healthDisplay.textContent = isDead ? "DEAD" : health;
     }
+
     let triggerbotCooldown = 0;
+    let isJumping = false;
+    let velocityY = 0;
+
     animate();
 
     window.addEventListener('resize', () => {
