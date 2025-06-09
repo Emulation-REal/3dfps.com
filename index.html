@@ -189,6 +189,7 @@
       });
       conn.on('close', () => {
         if (remotePlayers[conn.peer]) {
+          if (remotePlayers[conn.peer].espBox) scene.remove(remotePlayers[conn.peer].espBox);
           scene.remove(remotePlayers[conn.peer].mesh);
           delete remotePlayers[conn.peer];
           updatePlayerList();
@@ -262,7 +263,7 @@
     }
 
     // === MOD MENU ===
-    let mods = { tracers: false, aimbot: false };
+    let mods = { tracers: false, esp: false, aimbot: false };
     const modMenu = document.createElement("div");
     modMenu.style.position = "absolute";
     modMenu.style.top = "50px";
@@ -277,10 +278,12 @@
     modMenu.innerHTML = `
       <strong>Mod Menu</strong><br>
       <label><input type="checkbox" id="tracersToggle"> Tracers</label><br>
+      <label><input type="checkbox" id="espToggle"> ESP Box</label><br>
       <label><input type="checkbox" id="aimbotToggle"> Aimbot</label>
     `;
     document.body.appendChild(modMenu);
     document.getElementById("tracersToggle").onchange = e => mods.tracers = e.target.checked;
+    document.getElementById("espToggle").onchange = e => mods.esp = e.target.checked;
     document.getElementById("aimbotToggle").onchange = e => mods.aimbot = e.target.checked;
     document.addEventListener("keydown", e => {
       if (e.key === ";") modMenu.style.display = modMenu.style.display === "none" ? "block" : "none";
@@ -292,22 +295,41 @@
       tracerLines.forEach(line => scene.remove(line));
       tracerLines.length = 0;
 
-      if (!mods.tracers) return;
+      if (!mods.tracers && !mods.esp) return;
 
-      const start = controls.getObject().position.clone().add(new THREE.Vector3(0, 1.5, 0));
       for (const id in remotePlayers) {
         const enemy = remotePlayers[id];
-        const end = enemy.mesh.position.clone().add(new THREE.Vector3(0, 1, 0));
-        const points = [start, end];
-        const geometry = new THREE.BufferGeometry().setFromPoints(points);
-        const material = new THREE.LineBasicMaterial({
-          color: 0xff0000,
-          depthTest: false
-        });
-        const line = new THREE.Line(geometry, material);
-        line.renderOrder = 999;
-        tracerLines.push(line);
-        scene.add(line);
+        const enemyPos = enemy.mesh.position.clone().add(new THREE.Vector3(0, 1, 0));
+
+        if (mods.tracers) {
+          const start = controls.getObject().position.clone().add(new THREE.Vector3(0, 1.5, 0));
+          const points = [start, enemyPos];
+          const geometry = new THREE.BufferGeometry().setFromPoints(points);
+          const material = new THREE.LineBasicMaterial({ color: 0xff0000, depthTest: false });
+          const line = new THREE.Line(geometry, material);
+          line.renderOrder = 999;
+          tracerLines.push(line);
+          scene.add(line);
+        }
+
+        if (mods.esp && !enemy.espBox) {
+          const boxGeo = new THREE.BoxGeometry(1.1, 2.1, 1.1);
+          const boxMat = new THREE.MeshBasicMaterial({
+            color: 0x00ff00,
+            wireframe: true,
+            depthTest: false,
+            transparent: true,
+            opacity: 0.8
+          });
+          const espBox = new THREE.Mesh(boxGeo, boxMat);
+          espBox.renderOrder = 999;
+          scene.add(espBox);
+          enemy.espBox = espBox;
+        }
+
+        if (enemy.espBox) {
+          enemy.espBox.position.copy(enemy.mesh.position);
+        }
       }
     }
 
