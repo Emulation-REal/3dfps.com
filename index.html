@@ -262,7 +262,7 @@
     }
 
     // === MOD MENU ===
-    let mods = { esp: false, tracers: false, aimbot: false };
+    let mods = { tracers: false, aimbot: false };
     const modMenu = document.createElement("div");
     modMenu.style.position = "absolute";
     modMenu.style.top = "50px";
@@ -276,12 +276,10 @@
     modMenu.style.zIndex = "99";
     modMenu.innerHTML = `
       <strong>Mod Menu</strong><br>
-      <label><input type="checkbox" id="espToggle"> ESP</label><br>
       <label><input type="checkbox" id="tracersToggle"> Tracers</label><br>
       <label><input type="checkbox" id="aimbotToggle"> Aimbot</label>
     `;
     document.body.appendChild(modMenu);
-    document.getElementById("espToggle").onchange = e => mods.esp = e.target.checked;
     document.getElementById("tracersToggle").onchange = e => mods.tracers = e.target.checked;
     document.getElementById("aimbotToggle").onchange = e => mods.aimbot = e.target.checked;
     document.addEventListener("keydown", e => {
@@ -289,34 +287,23 @@
     });
 
     const tracerLines = [];
-    const espBoxes = [];
 
     function updateESP() {
-      // Remove old tracer lines & ESP boxes
+      // Remove old tracer lines
       tracerLines.forEach(line => scene.remove(line));
-      espBoxes.forEach(box => scene.remove(box));
       tracerLines.length = 0;
-      espBoxes.length = 0;
+
+      if (!mods.tracers) return;
 
       for (const id in remotePlayers) {
         const enemy = remotePlayers[id];
-
-        if (mods.tracers) {
-          // Red line from screen center (camera position) to player
-          const points = [camera.position.clone(), enemy.mesh.position.clone()];
-          const geometry = new THREE.BufferGeometry().setFromPoints(points);
-          const material = new THREE.LineBasicMaterial({ color: 0xff0000 }); // red
-          const line = new THREE.Line(geometry, material);
-          tracerLines.push(line);
-          scene.add(line);
-        }
-
-        if (mods.esp) {
-          // Green box outline around player, visible through walls
-          const box = new THREE.BoxHelper(enemy.mesh, 0x00ff00); // green
-          espBoxes.push(box);
-          scene.add(box);
-        }
+        // Red line from camera position to player position
+        const points = [camera.position.clone(), enemy.mesh.position.clone()];
+        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+        const material = new THREE.LineBasicMaterial({ color: 0xff0000 });
+        const line = new THREE.Line(geometry, material);
+        tracerLines.push(line);
+        scene.add(line);
       }
     }
 
@@ -353,7 +340,7 @@
         else if (b.position.length() > 200) { scene.remove(b); bullets.splice(i, 1); }
       });
 
-      if (mods.esp || mods.tracers) updateESP();
+      updateESP();
 
       if (mods.aimbot && isAiming) {
         let closest = null, minDist = Infinity;
