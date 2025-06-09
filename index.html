@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Multiplayer FPS</title>
+  <title>Multiplayer FPS Game – Mods</title>
   <style>
     body { margin: 0; overflow: hidden; }
     canvas { display: block; position: absolute; top: 0; left: 0; }
@@ -65,7 +65,51 @@
       background: rgba(255,255,255,0.9);
       color: black;
     }
-    /* Mod menu styles omitted for brevity (same as your code) */
+    #killFeed {
+      position: absolute;
+      top: 100px;
+      left: 10px;
+      width: 250px;
+      max-height: 150px;
+      overflow: hidden;
+      font-family: sans-serif;
+      color: red;
+      font-size: 14px;
+      background: rgba(0,0,0,0.6);
+      padding: 8px;
+      border-radius: 6px;
+      z-index: 120;
+      user-select: none;
+    }
+    /* Mod menu styles */
+    #modMenu {
+      position: absolute;
+      top: 50px; left: 50px;
+      background: rgba(0,0,0,0.8);
+      color: white;
+      padding: 10px;
+      border: 2px solid white;
+      border-radius: 8px;
+      z-index: 99;
+      display: none;
+      font-family: sans-serif;
+      font-size: 14px;
+      width: 200px;
+    }
+    #modMenu label {
+      display: block;
+      margin-bottom: 6px;
+      cursor: pointer;
+    }
+    #modMenu input[type="text"] {
+      width: 100%;
+      box-sizing: border-box;
+      margin-top: 4px;
+      padding: 4px;
+      border-radius: 4px;
+      border: none;
+      outline: none;
+    }
   </style>
 </head>
 <body>
@@ -75,6 +119,7 @@
   <div id="playerList">Players:<br/></div>
   <div id="chat"></div>
   <input id="chatInput" type="text" placeholder="Type your message and press Enter..." />
+  <div id="killFeed"></div>
 
   <!-- Three.js and dependencies -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.125.2/build/three.min.js"></script>
@@ -84,15 +129,25 @@
   <!-- Overlay canvas for tracers -->
   <canvas id="overlay"></canvas>
 
+  <!-- Mod Menu -->
+  <div id="modMenu">
+    <strong>Mod Menu</strong><br>
+    <label><input type="checkbox" id="tracersToggle"> Tracers</label>
+    <label>
+      Your Name:<br>
+      <input type="text" id="nameInput" placeholder="Enter your name" maxlength="15" />
+    </label>
+  </div>
+
   <script>
-    // Basic three.js setup (same as your original code)
+    // Basic three.js setup
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
 
-    // Overlay canvas setup for tracers (2D)
+    // Overlay canvas for tracers (2D)
     const overlay = document.getElementById("overlay");
     const overlayCtx = overlay.getContext("2d");
     function resizeOverlay() {
@@ -113,65 +168,130 @@
     document.body.addEventListener('click', () => controls.lock());
     scene.add(controls.getObject());
 
-    // ... Your existing variables, setup, obstacles, controls, connections, chat, bullets etc ...
+    // UI elements
+    const healthDisplay = document.getElementById("health");
+    const killFeedDiv = document.getElementById("killFeed");
+    const modMenu = document.getElementById("modMenu");
+    const tracersToggle = document.getElementById("tracersToggle");
+    const nameInput = document.getElementById("nameInput");
 
-    // === MODS ===
-    let mods = { esp: false, tracers: false, aimbot: false };
-    const modMenu = document.createElement("div");
-    modMenu.style.position = "absolute";
-    modMenu.style.top = "50px";
-    modMenu.style.left = "50px";
-    modMenu.style.background = "rgba(0,0,0,0.8)";
-    modMenu.style.color = "white";
-    modMenu.style.padding = "10px";
-    modMenu.style.border = "2px solid white";
-    modMenu.style.borderRadius = "8px";
-    modMenu.style.display = "none";
-    modMenu.style.zIndex = "99";
-    modMenu.innerHTML = `
-      <strong>Mod Menu</strong><br>
-      <label><input type="checkbox" id="espToggle"> ESP</label><br>
-      <label><input type="checkbox" id="tracersToggle"> Tracers</label><br>
-      <label><input type="checkbox" id="aimbotToggle"> Aimbot</label>
-    `;
-    document.body.appendChild(modMenu);
-    document.getElementById("espToggle").onchange = e => mods.esp = e.target.checked;
-    document.getElementById("tracersToggle").onchange = e => mods.tracers = e.target.checked;
-    document.getElementById("aimbotToggle").onchange = e => mods.aimbot = e.target.checked;
+    // Mods state
+    let mods = { tracers: false };
+    tracersToggle.onchange = e => mods.tracers = e.target.checked;
+
+    // Toggle mod menu with ";"
     document.addEventListener("keydown", e => {
-      if (e.key === ";") modMenu.style.display = modMenu.style.display === "none" ? "block" : "none";
+      if (e.key === ";") {
+        modMenu.style.display = modMenu.style.display === "none" ? "block" : "none";
+      }
     });
 
-    // Keep track of ESP boxes (wireframe boxes with depthTest disabled to see through walls)
-    const espBoxes = [];
+    // Players data (simulate remote players)
+    // Replace this with your actual multiplayer player objects and meshes
+    const remotePlayers = {}; // id: {mesh, health, name, position}
 
-    // Create a wireframe box for ESP around a player's mesh
-    function createESPBox(targetMesh) {
-      const geo = new THREE.BoxGeometry(1.2, 2.4, 1.2); // slightly bigger than player box
-      const wireframe = new THREE.WireframeGeometry(geo);
-      const mat = new THREE.LineBasicMaterial({ color: 0x00ff00, depthTest: false, linewidth: 2 });
-      const line = new THREE.LineSegments(wireframe, mat);
-      line.position.copy(targetMesh.position);
-      return line;
+    // Your local player info
+    const localPlayer = {
+      mesh: null,
+      health: 100,
+      name: "You",
+      id: "local",
+      position: new THREE.Vector3(0, 0, 0)
+    };
+
+    // For demonstration, let's add some dummy remote players:
+    function createDummyPlayer(id, x, y, z, health, name) {
+      const geometry = new THREE.BoxGeometry(1, 2, 1);
+      const material = new THREE.MeshBasicMaterial({color: 0x00ffff});
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.set(x, y, z);
+      scene.add(mesh);
+      remotePlayers[id] = {mesh, health, name, position: mesh.position};
+    }
+    createDummyPlayer("p1", 5, 0, -10, 80, "Alice");
+    createDummyPlayer("p2", -5, 0, -15, 60, "Bob");
+    createDummyPlayer("p3", 0, 0, -20, 30, "Charlie");
+
+    // Local player mesh for demonstration
+    const lpGeometry = new THREE.BoxGeometry(1, 2, 1);
+    const lpMaterial = new THREE.MeshBasicMaterial({color: 0x00ff00});
+    localPlayer.mesh = new THREE.Mesh(lpGeometry, lpMaterial);
+    scene.add(localPlayer.mesh);
+
+    // Kill feed data structure
+    let killFeed = [];
+
+    // Function to add kill to kill feed
+    function addKillFeed(killer, victim) {
+      const entry = `${killer} killed ${victim}`;
+      killFeed.unshift({ text: entry, timestamp: performance.now() });
+      if (killFeed.length > 5) killFeed.pop();
+      updateKillFeedDisplay();
     }
 
-    // Update ESP boxes to match remote players positions
-    function updateESP() {
-      // Remove old ESP boxes
-      for (const box of espBoxes) {
-        scene.remove(box);
+    // Update kill feed UI
+    function updateKillFeedDisplay() {
+      const now = performance.now();
+      killFeedDiv.innerHTML = "";
+      for (let i = 0; i < killFeed.length; i++) {
+        const item = killFeed[i];
+        // Fade out after 5 seconds
+        const age = (now - item.timestamp) / 1000;
+        if (age > 5) {
+          killFeed.splice(i, 1);
+          i--;
+          continue;
+        }
+        const opacity = 1 - age / 5;
+        const div = document.createElement("div");
+        div.style.opacity = opacity;
+        div.textContent = item.text;
+        killFeedDiv.appendChild(div);
       }
-      espBoxes.length = 0;
+    }
 
-      if (!mods.esp) return;
+    // Call addKillFeed example after 5 seconds for demo
+    setTimeout(() => addKillFeed("Alice", "Bob"), 5000);
+    setTimeout(() => addKillFeed("Charlie", "You"), 8000);
 
-      for (const id in remotePlayers) {
-        const player = remotePlayers[id];
-        // Create new ESP box at player position
-        const box = createESPBox(player.mesh);
-        scene.add(box);
-        espBoxes.push(box);
-      }
+    // Handle name input change
+    nameInput.value = localPlayer.name;
+    nameInput.addEventListener("input", () => {
+      localPlayer.name = nameInput.value.trim() || "You";
+    });
+
+    // Helper: project 3D position to 2D screen coords
+    function toScreenPosition(pos) {
+      let vector = pos.clone();
+      vector.project(camera);
+      const x = (vector.x + 1) / 2 * overlay.width;
+      const y = (-vector.y + 1) / 2 * overlay.height;
+      return { x, y, z: vector.z };
+    }
+
+    // Draw health bar above player's head
+    function drawHealthBar(x, y, health) {
+      const width = 50;
+      const height = 6;
+      overlayCtx.fillStyle = "black";
+      overlayCtx.fillRect(x - width/2 - 1, y - 20 - 1, width + 2, height + 2);
+      overlayCtx.fillStyle = "red";
+      overlayCtx.fillRect(x - width/2, y - 20, width, height);
+      overlayCtx.fillStyle = "limegreen";
+      overlayCtx.fillRect(x - width/2, y - 20, width * (health / 100), height);
+      overlayCtx.strokeStyle = "white";
+      overlayCtx.strokeRect(x - width/2, y - 20, width, height);
+    }
+
+    // Draw player name above head
+    function drawPlayerName(x, y, name, isLocal = false) {
+      overlayCtx.font = "bold 16px sans-serif";
+      overlayCtx.textAlign = "center";
+      overlayCtx.fillStyle = isLocal ? "cyan" : "white";
+      overlayCtx.strokeStyle = "black";
+      overlayCtx.lineWidth = 3;
+      overlayCtx.strokeText(name, x, y - 30);
+      overlayCtx.fillText(name, x, y - 30);
     }
 
     // Tracer drawing logic on 2D overlay canvas
@@ -181,59 +301,69 @@
 
       const bottomCenter = { x: overlay.width / 2, y: overlay.height };
 
+      // Draw tracers & health bars & names for remote players
       for (const id in remotePlayers) {
         const player = remotePlayers[id];
 
-        // Convert player 3D position to normalized device coordinates (NDC)
-        const pos = player.mesh.position.clone();
-        pos.project(camera);
+        const screenPos = toScreenPosition(player.mesh.position);
+        if (screenPos.z > 1) continue; // behind camera
 
-        // Convert NDC to 2D screen coordinates
-        const x = (pos.x + 1) / 2 * overlay.width;
-        const y = (-pos.y + 1) / 2 * overlay.height;
-
-        // Check if player is behind camera (pos.z > 1 or pos.z < -1 means clipped)
-        if (pos.z > 1) continue;
-
-        // Draw red line from bottom center to player 2D position
+        // Draw tracer line
         overlayCtx.strokeStyle = 'red';
         overlayCtx.lineWidth = 2;
         overlayCtx.beginPath();
         overlayCtx.moveTo(bottomCenter.x, bottomCenter.y);
-        overlayCtx.lineTo(x, y);
+        overlayCtx.lineTo(screenPos.x, screenPos.y);
         overlayCtx.stroke();
 
-        // Optional: draw small circle at player position
+        // Draw circle at player position
         overlayCtx.fillStyle = 'red';
         overlayCtx.beginPath();
-        overlayCtx.arc(x, y, 6, 0, 2 * Math.PI);
+        overlayCtx.arc(screenPos.x, screenPos.y, 6, 0, 2 * Math.PI);
         overlayCtx.fill();
+
+        // Draw health bar above head
+        drawHealthBar(screenPos.x, screenPos.y, player.health);
+
+        // Draw player name above head
+        drawPlayerName(screenPos.x, screenPos.y, player.name);
+      }
+
+      // Draw local player name above head as well
+      const localScreenPos = toScreenPosition(localPlayer.mesh.position);
+      if (localScreenPos.z <= 1) {
+        drawPlayerName(localScreenPos.x, localScreenPos.y, localPlayer.name, true);
       }
     }
 
-    // Update ESP and Tracers
-    function updateMods() {
-      updateESP();
-      updateTracers();
-    }
-
-    // Animate loop
+    // Main animation loop
     function animate() {
       requestAnimationFrame(animate);
 
-      // Your movement, bullet, networking logic...
+      // Update player positions, handle input, bullets, networking etc here...
 
-      if (mods.esp || mods.tracers) updateMods();
+      // For demo, rotate dummy players slowly
+      Object.values(remotePlayers).forEach(p => {
+        p.mesh.position.x += Math.sin(Date.now() * 0.001) * 0.01;
+      });
 
-      // Your aimbot code (unchanged)...
+      // Update overlays/mods
+      if (mods.tracers) {
+        updateTracers();
+      } else {
+        overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+      }
 
-      healthDisplay.textContent = isDead ? "DEAD" : Math.floor(health);
+      // Update kill feed display fadeout
+      updateKillFeedDisplay();
+
+      // Update health display for local player
+      healthDisplay.textContent = Math.floor(localPlayer.health);
+
       renderer.render(scene, camera);
     }
 
     animate();
-
-    // Rest of your code unchanged...
   </script>
 </body>
 </html>
