@@ -6,6 +6,7 @@
   <style>
     body { margin: 0; overflow: hidden; }
     canvas { display: block; }
+
     #hud, #crosshair, #status, #playerList, #chat, #chatInput {
       position: absolute;
       font-family: sans-serif;
@@ -59,6 +60,14 @@
       background: rgba(255,255,255,0.9);
       color: black;
     }
+
+    /* Canvas overlay for 2D ESP & Tracers */
+    #overlay {
+      position: absolute;
+      top: 0; left: 0;
+      pointer-events: none;
+      z-index: 15;
+    }
   </style>
 </head>
 <body>
@@ -68,6 +77,8 @@
   <div id="playerList">Players:<br/></div>
   <div id="chat"></div>
   <input id="chatInput" type="text" placeholder="Type your message and press Enter..." />
+
+  <canvas id="overlay"></canvas>
 
   <script src="https://cdn.jsdelivr.net/npm/three@0.125.2/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.125.2/examples/js/controls/PointerLockControls.js"></script>
@@ -79,6 +90,21 @@
     const renderer = new THREE.WebGLRenderer({antialias: true});
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
+
+    // Overlay canvas for 2D ESP & tracers
+    const overlay = document.getElementById('overlay');
+    const ctx = overlay.getContext('2d');
+    function resizeOverlay() {
+      overlay.width = window.innerWidth;
+      overlay.height = window.innerHeight;
+    }
+    resizeOverlay();
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      resizeOverlay();
+    });
 
     const controls = new THREE.PointerLockControls(camera, document.body);
     document.body.addEventListener('click', () => controls.lock());
@@ -304,8 +330,8 @@
     modMenu.style.zIndex = "99";
     modMenu.innerHTML = `
       <strong>Mod Menu</strong><br>
-      <label><input type="checkbox" id="espToggle"> ESP (Green Box)</label><br>
-      <label><input type="checkbox" id="tracersToggle"> Tracers (Red Lines)</label><br>
+      <label><input type="checkbox" id="espToggle"> ESP (Rainbow Box)</label><br>
+      <label><input type="checkbox" id="tracersToggle"> Tracers (Rainbow Lines)</label><br>
       <label><input type="checkbox" id="aimbotToggle"> Aimbot (Right Click)</label>
     `;
     document.body.appendChild(modMenu);
@@ -318,49 +344,6 @@
       if (e.key === ";") modMenu.style.display = modMenu.style.display === "none" ? "block" : "none";
     });
 
-    const tracerLines = [];
-    const espBoxes = [];
-
-    function clearHelpers() {
-      tracerLines.forEach(line => scene.remove(line));
-      tracerLines.length = 0;
-      espBoxes.forEach(box => scene.remove(box));
-      espBoxes.length = 0;
-    }
-
-    function updateESPAndTracers() {
-      clearHelpers();
-
-      const start = controls.getObject().position.clone().add(new THREE.Vector3(0, 1.6, 0)); // eye height
-
-      for (const id in remotePlayers) {
-        const enemy = remotePlayers[id];
-
-        // ESP boxes: green wireframe visible through walls
-        if (mods.esp) {
-          // Create a box helper with green color and disable depth test to see through walls
-          const boxHelper = new THREE.BoxHelper(enemy.mesh);
-          boxHelper.material.color.set(0x00ff00);
-          boxHelper.material.depthTest = false;
-          boxHelper.renderOrder = 999;
-          espBoxes.push(boxHelper);
-          scene.add(boxHelper);
-        }
-
-        // Tracers: red lines from camera to player visible through walls
-        if (mods.tracers) {
-          const end = enemy.mesh.position.clone().add(new THREE.Vector3(0, 1, 0)); // approx center of player
-          const points = [start, end];
-          const geometry = new THREE.BufferGeometry().setFromPoints(points);
-          const material = new THREE.LineBasicMaterial({ color: 0xff0000, depthTest: false });
-          const line = new THREE.Line(geometry, material);
-          line.renderOrder = 998;
-          tracerLines.push(line);
-          scene.add(line);
-        }
-      }
-    }
-
     let isAiming = false;
     document.addEventListener("mousedown", e => { if (e.button === 2) isAiming = true; });
     document.addEventListener("mouseup", e => { if (e.button === 2) isAiming = false; });
@@ -370,6 +353,76 @@
     let velocityY = 0;
 
     const dirVec = new THREE.Vector3();
+
+    // Rainbow color helper
+    function rainbowColor(time) {
+      const frequency = 0.002;
+      const red   = Math.sin(frequency * time + 0) * 127 + 128;
+      const green = Math.sin(frequency * time + 2) * 127 + 128;
+      const blue  = Math.sin(frequency * time + 4) * 127 + 128;
+      return `rgb(${red|0},${green|0},${blue|0})`;
+    }
+
+    // Project 3D position to 2D screen position
+    function toScreenPosition(pos, camera) {
+      const vector = pos.clone();
+      vector.project(camera);
+      return {
+        x: (vector.x + 1) / 2 * overlay.width,
+        y: (-vector.y + 1) / 2 * overlay.height,
+        onScreen: vector.z < 1 && vector.z > -1
+      };
+    }
+
+    function drawESPAndTracers() {
+      ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+      if (!mods.esp && !mods.tracers) return;
+
+      const centerX = overlay.width / 2;
+      const centerY = overlay.height / 2;
+      const time = performance.now();
+
+      for (const id in remotePlayers) {
+        const player = remotePlayers[id];
+        const pos = player.mesh.position.clone();
+        pos.y += 1; // approx center height
+
+        const screenPos = toScreenPosition(pos, camera);
+        if (!screenPos.onScreen) continue;
+
+        // Rainbow color based on time + player id hash
+        const hash = id.split('').reduce((acc,c) => acc + c.charCodeAt(0), 0);
+        const colorTime = time + hash * 100;
+        const color = rainbowColor(colorTime);
+
+        if (mods.esp) {
+          // Draw a 2D rectangle box around player on screen
+          const boxWidth = 40;
+          const boxHeight = 80;
+
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 3;
+          ctx.shadowColor = color;
+          ctx.shadowBlur = 6;
+          ctx.strokeRect(screenPos.x - boxWidth/2, screenPos.y - boxHeight, boxWidth, boxHeight);
+        }
+
+        if (mods.tracers) {
+          // Draw a line from center screen to player 2D position
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 2;
+          ctx.shadowColor = color;
+          ctx.shadowBlur = 6;
+
+          ctx.beginPath();
+          ctx.moveTo(centerX, centerY);
+          ctx.lineTo(screenPos.x, screenPos.y);
+          ctx.stroke();
+        }
+      }
+    }
+
     function animate() {
       requestAnimationFrame(animate);
 
@@ -416,34 +469,39 @@
         else if (b.position.length() > 200) { scene.remove(b); bullets.splice(i, 1); }
       });
 
-      updateESPAndTracers();
-
-      if (mods.aimbot && isAiming) {
-        let closest = null, minDist = Infinity;
+      if (mods.aimbot && isAiming && !isDead && Object.keys(remotePlayers).length) {
+        // Find closest player to crosshair center
+        let bestPlayer = null;
+        let bestAngle = 9999;
+        const center = new THREE.Vector2(0, 0);
         for (const id in remotePlayers) {
-          const dist = camera.position.distanceTo(remotePlayers[id].mesh.position);
-          if (dist < minDist) {
-            minDist = dist;
-            closest = remotePlayers[id];
+          const player = remotePlayers[id];
+          const dirToPlayer = player.mesh.position.clone().sub(controls.getObject().position).normalize();
+          const cameraDir = camera.getWorldDirection(new THREE.Vector3());
+          const angle = dirToPlayer.angleTo(cameraDir);
+          if (angle < bestAngle) {
+            bestAngle = angle;
+            bestPlayer = player;
           }
         }
-        if (closest) {
-          const dir = closest.mesh.position.clone().sub(camera.position).normalize();
-          camera.lookAt(camera.position.clone().add(dir));
+        if (bestPlayer && bestAngle < 0.3) {
+          // Smoothly rotate player towards bestPlayer
+          const targetPos = bestPlayer.mesh.position.clone();
+          const myPos = controls.getObject().position.clone();
+          const targetDir = targetPos.sub(myPos);
+          const targetAngle = Math.atan2(targetDir.x, targetDir.z);
+          const currentRotation = controls.getObject().rotation.y;
+          let newRot = currentRotation + (targetAngle - currentRotation) * 0.2;
+          controls.getObject().rotation.y = newRot;
+          camera.rotation.y = newRot;
         }
       }
 
-      healthDisplay.textContent = isDead ? "DEAD" : Math.floor(health);
+      drawESPAndTracers();
+
       renderer.render(scene, camera);
     }
-
     animate();
-
-    window.addEventListener('resize', () => {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-    });
   </script>
 </body>
 </html>
