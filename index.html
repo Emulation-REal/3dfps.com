@@ -74,6 +74,7 @@
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.4.7/dist/peerjs.min.js"></script>
 
   <script>
+    // ——— existing setup … unchanged ———
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
     const renderer = new THREE.WebGLRenderer({antialias: true});
@@ -164,23 +165,19 @@
 
     function createRemoteMesh() {
       const group = new THREE.Group();
-
       const body = new THREE.Mesh(
         new THREE.BoxGeometry(1, 2, 1),
         new THREE.MeshStandardMaterial({ color: 0x0000ff })
       );
       body.position.y = 1;
-
       const cone = new THREE.Mesh(
         new THREE.ConeGeometry(0.3, 0.7, 8),
         new THREE.MeshStandardMaterial({ color: 0xffaa00 })
       );
       cone.position.set(0, 2, 0.75);
       cone.rotation.x = Math.PI;
-
       group.add(body);
       group.add(cone);
-
       return group;
     }
 
@@ -255,13 +252,17 @@
     }
 
     const bullets = [];
-    document.addEventListener('click', () => {
-      if (isDead || chatInput.style.display === "block") return;
+    function spawnBullet() {
       const bullet = new THREE.Mesh(new THREE.SphereGeometry(0.1), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
       bullet.position.copy(camera.position);
       bullet.direction = camera.getWorldDirection(new THREE.Vector3()).clone();
       scene.add(bullet);
       bullets.push(bullet);
+    }
+
+    document.addEventListener('click', () => {
+      if (isDead || chatInput.style.display === "block") return;
+      spawnBullet();
     });
 
     function checkBulletHit(bullet) {
@@ -288,7 +289,7 @@
       }, 3000);
     }
 
-    // === MOD MENU ===
+    // ——— MOD MENU (unchanged) … ———
     let mods = { tracers: false, aimbot: false, esp: false, triggerbot: false };
     const modMenu = document.createElement("div");
     modMenu.style.position = "absolute";
@@ -309,51 +310,37 @@
       <label><input type="checkbox" id="triggerbotToggle"> Triggerbot</label>
     `;
     document.body.appendChild(modMenu);
-
     document.getElementById("espToggle").onchange = e => mods.esp = e.target.checked;
     document.getElementById("tracersToggle").onchange = e => mods.tracers = e.target.checked;
     document.getElementById("aimbotToggle").onchange = e => mods.aimbot = e.target.checked;
     document.getElementById("triggerbotToggle").onchange = e => mods.triggerbot = e.target.checked;
-
     document.addEventListener("keydown", e => {
       if (e.key === ";") modMenu.style.display = modMenu.style.display === "none" ? "block" : "none";
     });
 
-    const tracerLines = [];
-    const espBoxes = [];
-
+    const tracerLines = [], espBoxes = [];
     function clearHelpers() {
-      tracerLines.forEach(line => scene.remove(line));
-      tracerLines.length = 0;
-      espBoxes.forEach(box => scene.remove(box));
-      espBoxes.length = 0;
+      tracerLines.forEach(l => scene.remove(l)); tracerLines.length = 0;
+      espBoxes.forEach(b => scene.remove(b)); espBoxes.length = 0;
     }
-
     function updateESPAndTracers() {
       clearHelpers();
-
-      const start = controls.getObject().position.clone().add(new THREE.Vector3(0, 1.6, 0)); // eye height
-
+      const start = controls.getObject().position.clone().add(new THREE.Vector3(0,1.6,0));
       for (const id in remotePlayers) {
         const enemy = remotePlayers[id];
-
-        // ESP boxes: green wireframe visible through walls
         if (mods.esp) {
-          const boxHelper = new THREE.BoxHelper(enemy.mesh);
-          boxHelper.material.color.set(0x00ff00);
-          boxHelper.material.depthTest = false;
-          boxHelper.renderOrder = 999;
-          espBoxes.push(boxHelper);
-          scene.add(boxHelper);
+          const bh = new THREE.BoxHelper(enemy.mesh);
+          bh.material.color.set(0x00ff00);
+          bh.material.depthTest = false;
+          bh.renderOrder = 999;
+          espBoxes.push(bh);
+          scene.add(bh);
         }
-
-        // Tracers: red lines from camera to player visible through walls
         if (mods.tracers) {
-          const end = enemy.mesh.position.clone().add(new THREE.Vector3(0, 1, 0)); // approx center of player
-          const points = [start, end];
-          const geometry = new THREE.BufferGeometry().setFromPoints(points);
-          const material = new THREE.LineBasicMaterial({ color: 0xff0000, depthTest: false });
-          const line = new THREE.Line(geometry, material);
+          const end = enemy.mesh.position.clone().add(new THREE.Vector3(0,1,0));
+          const geo = new THREE.BufferGeometry().setFromPoints([start,end]);
+          const mat = new THREE.LineBasicMaterial({ color:0xff0000, depthTest:false });
+          const line = new THREE.Line(geo,mat);
           line.renderOrder = 998;
           tracerLines.push(line);
           scene.add(line);
@@ -362,10 +349,25 @@
     }
 
     let isAiming = false;
-    document.addEventListener("mousedown", e => { if (e.button === 2) isAiming = true; });
-    document.addEventListener("mouseup", e => { if (e.button === 2) isAiming = false; });
+    document.addEventListener("mousedown", e => { if (e.button===2) isAiming=true; });
+    document.addEventListener("mouseup",   e => { if (e.button===2) isAiming=false; });
 
-    // Jump variables
+    // ——— Gamepad support starts here ———
+    let gamepadConnected = false;
+    let shootCooldown = 0;
+    const lookSpeed = 0.05;
+
+    window.addEventListener("gamepadconnected", () => {
+      gamepadConnected = true;
+      console.log("Gamepad connected");
+    });
+    window.addEventListener("gamepaddisconnected", () => {
+      gamepadConnected = false;
+      console.log("Gamepad disconnected");
+    });
+    // ——— Gamepad support ends here ———
+
+    // Jump physics vars
     let isJumping = false;
     let velocityY = 0;
 
@@ -374,50 +376,58 @@
     function getClosestEnemy() {
       let closest = null, minDist = Infinity;
       for (const id in remotePlayers) {
-        const enemy = remotePlayers[id];
-        const dist = camera.position.distanceTo(enemy.mesh.position);
-        if (dist < minDist) {
-          minDist = dist;
-          closest = enemy;
-        }
+        const d = camera.position.distanceTo(remotePlayers[id].mesh.position);
+        if (d < minDist) { minDist = d; closest = remotePlayers[id]; }
       }
       return closest;
     }
-
     function enemyInCrosshair(enemy) {
       if (!enemy) return false;
-      // Project enemy position to screen space
       const pos = enemy.mesh.position.clone();
-      pos.y += 1; // approx center
-      const vector = pos.project(camera);
-
-      // vector.x and vector.y range from -1 to 1; center is 0,0
-      // Allow small margin for crosshair size (e.g. 0.05)
-      const margin = 0.05;
-      return vector.x > -margin && vector.x < margin && vector.y > -margin && vector.y < margin;
+      pos.y += 1;
+      const vec = pos.project(camera);
+      const m = 0.05;
+      return vec.x > -m && vec.x < m && vec.y > -m && vec.y < m;
     }
 
     function animate() {
       requestAnimationFrame(animate);
 
-      if (!isDead && chatInput.style.display !== "block") {
-        dirVec.set(0, 0, 0);
+      // Gamepad read
+      let gp = null;
+      if (gamepadConnected) {
+        const pads = navigator.getGamepads();
+        gp = pads[0];
+      }
+
+      if (!isDead && chatInput.style.display!=="block") {
+        // reset movement vector
+        dirVec.set(0,0,0);
+
+        // ——— Keyboard WASD ———
         if (keys.KeyW) dirVec.z -= 1;
         if (keys.KeyS) dirVec.z += 1;
         if (keys.KeyA) dirVec.x -= 1;
         if (keys.KeyD) dirVec.x += 1;
+
+        // ——— Gamepad left stick ———
+        if (gp) {
+          dirVec.x += gp.axes[0];
+          dirVec.z += gp.axes[1];
+        }
+
+        // normalize & apply
         dirVec.normalize().applyQuaternion(camera.quaternion);
         dirVec.y = 0;
-        const nextPos = controls.getObject().position.clone().add(dirVec.multiplyScalar(0.2));
+        let nextPos = controls.getObject().position.clone().add(dirVec.multiplyScalar(0.2));
 
-        // Jumping
-        if (keys.Space && !isJumping) {
+        // ——— Jump: Space or Gamepad “A” (button 0) ———
+        if ((keys.Space || (gp && gp.buttons[0].pressed)) && !isJumping) {
           velocityY = 0.2;
           isJumping = true;
         }
         velocityY -= 0.01; // gravity
         nextPos.y += velocityY;
-
         if (nextPos.y <= 1.6) {
           nextPos.y = 1.6;
           velocityY = 0;
@@ -426,67 +436,64 @@
 
         if (!collides(nextPos)) controls.getObject().position.copy(nextPos);
 
-        // Send position + rotationY (yaw)
+        // broadcast position + yaw
         for (const id in connections) {
-          const conn = connections[id];
-          if (conn.open) {
+          const c = connections[id];
+          if (c.open) {
             const p = controls.getObject().position;
-            const rotY = controls.getObject().rotation.y;
-            conn.send({ type: 'position', x: p.x, y: p.y, z: p.z, rotationY: rotY });
+            c.send({ type:'position', x:p.x, y:p.y, z:p.z, rotationY: controls.getObject().rotation.y });
           }
         }
       }
 
-      bullets.forEach((b, i) => {
+      // ——— Bullets movement & hits ———
+      bullets.forEach((b,i) => {
         b.position.add(b.direction.clone().multiplyScalar(0.5));
-        if (checkBulletHit(b)) { scene.remove(b); bullets.splice(i, 1); }
-        else if (b.position.length() > 200) { scene.remove(b); bullets.splice(i, 1); }
+        if (checkBulletHit(b)) {
+          scene.remove(b);
+          bullets.splice(i,1);
+        } else if (b.position.length()>200) {
+          scene.remove(b);
+          bullets.splice(i,1);
+        }
       });
 
+      // ——— ESP / Tracers ———
       updateESPAndTracers();
 
-      // Fixed Aimbot - smoothly rotate camera to look at closest enemy when aiming
+      // ——— Aimbot ———
       if (mods.aimbot && isAiming) {
-        const closest = getClosestEnemy();
-        if (closest) {
-          const targetPos = closest.mesh.position.clone().add(new THREE.Vector3(0, 1, 0));
-          const dir = targetPos.sub(camera.position).normalize();
-
-          // Calculate target quaternion
-          const targetQuaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,-1), dir);
-
-          // Smooth rotation lerp for better aiming feel
-          camera.quaternion.slerp(targetQuaternion, 0.2);
-
-          // Also update controls to match camera rotation
+        const enemy = getClosestEnemy();
+        if (enemy) {
+          const tp = enemy.mesh.position.clone().add(new THREE.Vector3(0,1,0));
+          const dir = tp.sub(camera.position).normalize();
+          const tq = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,-1), dir);
+          camera.quaternion.slerp(tq, 0.2);
           controls.getObject().quaternion.copy(camera.quaternion);
         }
       }
 
-      // Triggerbot mod - automatically fire when enemy is in crosshair
-      if (mods.triggerbot && !isDead && chatInput.style.display !== "block") {
-        const closest = getClosestEnemy();
-        if (closest && enemyInCrosshair(closest)) {
-          // Fire bullet automatically (limit rate)
-          if (!triggerbotCooldown) {
-            const bullet = new THREE.Mesh(new THREE.SphereGeometry(0.1), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
-            bullet.position.copy(camera.position);
-            bullet.direction = camera.getWorldDirection(new THREE.Vector3()).clone();
-            scene.add(bullet);
-            bullets.push(bullet);
-            triggerbotCooldown = 20;
-          }
+      // ——— Triggerbot ———
+      if (mods.triggerbot && !isDead && chatInput.style.display!=="block") {
+        const enemy = getClosestEnemy();
+        if (enemy && enemyInCrosshair(enemy) && !triggerbotCooldown) {
+          spawnBullet();
+          triggerbotCooldown = 20;
         }
       }
-
       if (triggerbotCooldown) triggerbotCooldown--;
+
+      // ——— Gamepad shoot (RT = button 7) ———
+      if (gp && gp.buttons[7].pressed && !isDead && chatInput.style.display!=="block" && shootCooldown===0) {
+        spawnBullet();
+        shootCooldown = 15; // cooldown frames
+      }
+      if (shootCooldown) shootCooldown--;
 
       renderer.render(scene, camera);
       healthDisplay.textContent = isDead ? "DEAD" : health;
     }
-
     let triggerbotCooldown = 0;
-
     animate();
 
     window.addEventListener('resize', () => {
