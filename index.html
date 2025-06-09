@@ -100,6 +100,9 @@
     document.body.addEventListener('click', () => controls.lock());
     scene.add(controls.getObject());
 
+    // ** Spawn the player above the floor **
+    controls.getObject().position.set(0, 1.6, 0);
+
     // Lights
     scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
     const dirLight = new THREE.DirectionalLight(0xffffff, 1);
@@ -136,11 +139,11 @@
 
     // HUD & Chat elements
     let health = 100, isDead = false;
-    const healthDisplay    = document.getElementById("health");
-    const statusDisplay    = document.getElementById("status");
-    const playerListDisplay= document.getElementById("playerList");
-    const chatDisplay      = document.getElementById("chat");
-    const chatInput        = document.getElementById("chatInput");
+    const healthDisplay     = document.getElementById("health");
+    const statusDisplay     = document.getElementById("status");
+    const playerListDisplay = document.getElementById("playerList");
+    const chatDisplay       = document.getElementById("chat");
+    const chatInput         = document.getElementById("chatInput");
     const keys = {};
 
     document.addEventListener('keydown', e => {
@@ -169,10 +172,10 @@
     });
 
     // PEERJS Multiplayer Boilerplate
-    const ROOM_ID = "shared-room";
-    let peer, isHost = false;
-    const connections    = {};
-    const remotePlayers  = {};
+    const ROOM_ID      = "shared-room";
+    let peer, isHost   = false;
+    const connections  = {};
+    const remotePlayers= {};
 
     function updatePlayerList() {
       let html = "Players:<br/>You<br/>";
@@ -215,15 +218,16 @@
             updatePlayerList();
           }
           remotePlayers[conn.peer].mesh.position.set(data.x,1,data.z);
-          if (data.rotationY!==undefined) remotePlayers[conn.peer].mesh.rotation.y = data.rotationY;
+          if (data.rotationY !== undefined)
+            remotePlayers[conn.peer].mesh.rotation.y = data.rotationY;
         }
-        else if (data.type==='hit') {
+        else if (data.type === 'hit') {
           if (!isDead) {
             health -= 25;
-            if (health<=0) dieAndRespawn();
+            if (health <= 0) dieAndRespawn();
           }
         }
-        else if (data.type==='chat') {
+        else if (data.type === 'chat') {
           addChatMessage(conn.peer, data.message);
         }
       });
@@ -261,14 +265,15 @@
     function sendChatMessage(message) {
       addChatMessage("You", message);
       for (let id in connections) {
-        if (connections[id].open) connections[id].send({ type:'chat', message });
+        if (connections[id].open)
+          connections[id].send({ type:'chat', message });
       }
     }
 
     // Bullets
     const bullets = [];
     document.addEventListener('click', () => {
-      if (isDead|| chatInput.style.display==="block") return;
+      if (isDead || chatInput.style.display==="block") return;
       const bullet = new THREE.Mesh(
         new THREE.SphereGeometry(0.1),
         new THREE.MeshBasicMaterial({ color:0xff0000 })
@@ -295,7 +300,9 @@
       setTimeout(()=>{
         isDead = false; health = 100;
         healthDisplay.textContent = health;
-        controls.getObject().position.set(Math.random()*20-10,1.6,Math.random()*20-10);
+        controls.getObject().position.set(
+          Math.random()*20-10, 1.6, Math.random()*20-10
+        );
       },3000);
     }
 
@@ -304,8 +311,9 @@
     const modMenu = document.createElement("div");
     Object.assign(modMenu.style, {
       position:'absolute', top:'50px', left:'50px',
-      background:'rgba(0,0,0,0.8)', color:'white', padding:'10px',
-      border:'2px solid white', borderRadius:'8px', zIndex:'99', display:'none'
+      background:'rgba(0,0,0,0.8)', color:'white',
+      padding:'10px', border:'2px solid white',
+      borderRadius:'8px', zIndex:'99', display:'none'
     });
     modMenu.innerHTML = `
       <strong>Mod Menu</strong><br>
@@ -321,7 +329,8 @@
     document.getElementById("triggerbotToggle").onchange = e=> mods.triggerbot = e.target.checked;
 
     document.addEventListener("keydown", e=>{
-      if (e.key === ";") modMenu.style.display = modMenu.style.display==="none"?"block":"none";
+      if (e.key === ";")
+        modMenu.style.display = modMenu.style.display==="none"?"block":"none";
     });
 
     // 2D ESP & Tracers
@@ -338,7 +347,6 @@
         const ndcFeet = feet.project(camera);
         const ndcHead = head.project(camera);
 
-        // on-screen?
         if (ndcFeet.z < 1 && ndcFeet.z > -1) {
           const sxF = (ndcFeet.x*0.5+0.5)*overlay.width;
           const syF = (-ndcFeet.y*0.5+0.5)*overlay.height;
@@ -368,7 +376,7 @@
       }
     }
 
-    // Aimbot & Triggerbot helpers
+    // Aimbot & Triggerbot
     let isAiming = false, triggerbotCooldown = 0;
     document.addEventListener("mousedown", e=>{ if(e.button===2) isAiming=true; });
     document.addEventListener("mouseup",   e=>{ if(e.button===2) isAiming=false; });
@@ -377,7 +385,7 @@
       let best=null, dMin=Infinity;
       for (let id in remotePlayers) {
         const d = camera.position.distanceTo(remotePlayers[id].mesh.position);
-        if (d<dMin) { dMin=d; best=remotePlayers[id]; }
+        if (d < dMin) { dMin=d; best=remotePlayers[id]; }
       }
       return best;
     }
@@ -394,36 +402,41 @@
       requestAnimationFrame(animate);
 
       // Movement + Jump
-      if (!isDead && chatInput.style.display!=="block") {
+      if (!isDead && chatInput.style.display !== "block") {
         dirVec.set(0,0,0);
-        if (keys.KeyW) dirVec.z-=1;
-        if (keys.KeyS) dirVec.z+=1;
-        if (keys.KeyA) dirVec.x-=1;
-        if (keys.KeyD) dirVec.x+=1;
+        if (keys.KeyW) dirVec.z -= 1;
+        if (keys.KeyS) dirVec.z += 1;
+        if (keys.KeyA) dirVec.x -= 1;
+        if (keys.KeyD) dirVec.x += 1;
         dirVec.normalize().applyQuaternion(camera.quaternion);
         dirVec.y = 0;
         const next = controls.getObject().position.clone().add(dirVec.multiplyScalar(0.2));
 
         // gravity/jump
         if (keys.Space && !dirVec.jumping) {
-          dirVec.jumping=true; dirVec.vy=0.2;
+          dirVec.jumping = true; dirVec.vy = 0.2;
         }
         if (dirVec.jumping) {
           dirVec.vy -= 0.01;
           next.y += dirVec.vy;
           if (next.y <= 1.6) {
-            next.y = 1.6; dirVec.jumping=false; dirVec.vy=0;
+            next.y = 1.6; dirVec.jumping = false; dirVec.vy = 0;
           }
         }
 
-        if (!collides(next)) controls.getObject().position.copy(next);
+        if (!collides(next))
+          controls.getObject().position.copy(next);
 
         // send position
         for (let id in connections) {
           const c = connections[id];
           if (c.open) {
             const p = controls.getObject().position;
-            c.send({ type:'position', x:p.x, y:p.y, z:p.z, rotationY:controls.getObject().rotation.y });
+            c.send({
+              type:'position',
+              x: p.x, y: p.y, z: p.z,
+              rotationY: controls.getObject().rotation.y
+            });
           }
         }
       }
@@ -447,7 +460,8 @@
         if (target) {
           const tp = target.mesh.position.clone().add(new THREE.Vector3(0,1,0));
           const dir = tp.sub(camera.position).normalize();
-          const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,-1), dir);
+          const quat = new THREE.Quaternion()
+            .setFromUnitVectors(new THREE.Vector3(0,0,-1), dir);
           camera.quaternion.slerp(quat, 0.2);
           controls.getObject().quaternion.copy(camera.quaternion);
         }
@@ -457,7 +471,6 @@
       if (mods.triggerbot && !isDead && chatInput.style.display!=="block") {
         const t = getClosestEnemy();
         if (t && inCrosshair(t) && triggerbotCooldown===0) {
-          // fire
           const bullet = new THREE.Mesh(
             new THREE.SphereGeometry(0.1),
             new THREE.MeshBasicMaterial({ color:0xff0000 })
