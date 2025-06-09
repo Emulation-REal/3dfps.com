@@ -18,7 +18,6 @@
       transform: translate(-50%, -50%);
       font-size: 14px; color: white;
       pointer-events: none;
-      user-select: none;
     }
     #status {
       top: 10px; right: 10px;
@@ -49,12 +48,10 @@
       padding: 8px;
       border-radius: 6px;
       font-size: 14px;
-      user-select: none;
     }
     #chatInput {
       bottom: 170px; left: 10px;
       width: 300px;
-      display: none;
       font-size: 14px;
       padding: 6px;
       border-radius: 6px;
@@ -62,9 +59,10 @@
       outline: none;
       background: rgba(255,255,255,0.9);
       color: black;
+      display: none;
     }
 
-    /* MOD MENU STYLES */
+    /* MOD MENU */
     #modMenu {
       position: absolute;
       top: 50px;
@@ -78,7 +76,6 @@
       user-select: none;
       max-width: 220px;
       font-family: sans-serif;
-      cursor: default;
       display: none;
     }
     #modMenu label {
@@ -88,13 +85,10 @@
     }
     #modMenu input[type=checkbox] {
       margin-right: 6px;
-      cursor: pointer;
     }
     #modMenu h3 {
       margin-top: 0;
-      margin-bottom: 10px;
       font-size: 18px;
-      user-select: none;
     }
   </style>
 </head>
@@ -106,12 +100,11 @@
   <div id="chat"></div>
   <input id="chatInput" type="text" placeholder="Type your message and press Enter..." />
 
-  <!-- MOD MENU -->
-  <div id="modMenu" tabindex="0">
+  <div id="modMenu">
     <h3>Mod Menu</h3>
     <label><input type="checkbox" id="tracersToggle"> Tracers</label>
     <label><input type="checkbox" id="espToggle"> ESP Box</label>
-    <label><input type="checkbox" id="aimbotToggle"> Aimbot (Right Click)</label>
+    <label><input type="checkbox" id="aimbotToggle"> Aimbot (RMB)</label>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/three@0.125.2/build/three.min.js"></script>
@@ -119,7 +112,7 @@
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.4.7/dist/peerjs.min.js"></script>
 
   <script>
-    // Scene Setup
+    // THREE.js setup
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -129,27 +122,24 @@
     // Controls
     const controls = new THREE.PointerLockControls(camera, document.body);
     document.body.addEventListener('click', () => {
-      if (!modsMenuVisible && chatInput.style.display === 'none') controls.lock();
+      if (!modMenuVisible && chatInput.style.display === 'none') controls.lock();
     });
     scene.add(controls.getObject());
 
-    // DOM Elements
+    // HUD
     const healthDisplay = document.getElementById("health");
     const statusDisplay = document.getElementById("status");
-    const playerListDisplay = document.getElementById("playerList");
+    const playerList = document.getElementById("playerList");
     const chatDisplay = document.getElementById("chat");
     const chatInput = document.getElementById("chatInput");
     const modMenu = document.getElementById("modMenu");
-    const tracersToggle = document.getElementById("tracersToggle");
-    const espToggle = document.getElementById("espToggle");
-    const aimbotToggle = document.getElementById("aimbotToggle");
 
-    let modsMenuVisible = false;
+    let modMenuVisible = false;
     let players = [];
-    let peer = new Peer();
     let myId = null;
 
-    // Event Listeners
+    // PEERJS
+    const peer = new Peer();
     peer.on('open', id => {
       myId = id;
       statusDisplay.textContent = `Connected as ${id}`;
@@ -157,62 +147,61 @@
 
     peer.on('connection', conn => {
       conn.on('data', data => {
+        if (data.type === 'chat') updateChat(data.message);
         if (data.type === 'playerList') {
           players = data.players;
-          updatePlayerList();
+          refreshPlayers();
         }
       });
     });
 
-    // Functions
-    function updatePlayerList() {
-      playerListDisplay.innerHTML = 'Players:<br/>';
-      players.forEach(player => {
-        const playerElement = document.createElement('div');
-        playerElement.textContent = player.name;
-        playerListDisplay.appendChild(playerElement);
+    function refreshPlayers() {
+      playerList.innerHTML = "Players:<br/>";
+      players.forEach(p => {
+        const div = document.createElement("div");
+        div.textContent = p.name || "Unnamed";
+        playerList.appendChild(div);
       });
     }
 
-    function updateHealth(health) {
-      healthDisplay.textContent = health;
-    }
-
-    function updateStatus(status) {
-      statusDisplay.textContent = status;
-    }
-
-    function updateChat(message) {
-      const messageElement = document.createElement('div');
-      messageElement.textContent = message;
-      chatDisplay.appendChild(messageElement);
+    function updateChat(msg) {
+      const div = document.createElement("div");
+      div.textContent = msg;
+      chatDisplay.appendChild(div);
       chatDisplay.scrollTop = chatDisplay.scrollHeight;
     }
 
-    function sendChatMessage(message) {
-      const conn = peer.connections[Object.keys(peer.connections)[0]];
-      if (conn) {
-        conn.send({ type: 'chat', message });
-      }
+    function sendChat(msg) {
+      updateChat("You: " + msg);
+      Object.values(peer.connections).forEach(connArr =>
+        connArr.forEach(conn => conn.send({ type: 'chat', message: `Player: ${msg}` }))
+      );
     }
 
-    // Chat Input
-    chatInput.addEventListener('keydown', event => {
-      if (event.key === 'Enter' && chatInput.value.trim() !== '') {
-        sendChatMessage(chatInput.value.trim());
-        chatInput.value = '';
+    chatInput.addEventListener("keydown", e => {
+      if (e.key === "Enter" && chatInput.value.trim()) {
+        sendChat(chatInput.value.trim());
+        chatInput.value = "";
+        chatInput.style.display = "none";
       }
     });
 
-    // Mod Menu Toggle
-    document.addEventListener('keydown', event => {
-      if (event.key === 'm') {
-        modsMenuVisible = !modsMenuVisible;
-        modMenu.style.display = modsMenuVisible ? 'block' : 'none';
+    document.addEventListener("keydown", e => {
+      if (e.key === "t") {
+        chatInput.style.display = "block";
+        chatInput.focus();
+      }
+      if (e.key === "m") {
+        modMenuVisible = !modMenuVisible;
+        modMenu.style.display = modMenuVisible ? "block" : "none";
       }
     });
 
-    // Rendering Loop
+    function updateHealth(val) {
+      healthDisplay.textContent = val;
+    }
+
+    // Animate
     function animate() {
       requestAnimationFrame(animate);
       controls.update();
