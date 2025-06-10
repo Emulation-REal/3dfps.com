@@ -7,7 +7,11 @@
     body { margin: 0; overflow: hidden; }
     canvas { display: block; }
     /* HUD styles unchanged… */
-    #hud, #crosshair, #status, #playerList, #chat, #chatInput { position: absolute; font-family: sans-serif; z-index: 10; }
+    #hud, #crosshair, #status, #playerList, #chat, #chatInput {
+      position: absolute;
+      font-family: sans-serif;
+      z-index: 10;
+    }
     #hud { top: 10px; left: 10px; font-size: 16px; color: white; }
     #crosshair { top:50%; left:50%; transform: translate(-50%, -50%); font-size:14px; color:white; pointer-events:none; }
     #status { top:10px; right:10px; font-size:14px; color:yellow; background:rgba(0,0,0,0.5); padding:6px; border-radius:6px; }
@@ -29,7 +33,7 @@
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.4.7/dist/peerjs.min.js"></script>
 
   <script>
-    // — Existing Setup (unchanged) —
+    // — Existing Setup (unchanged) — 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -167,7 +171,7 @@
 
     function startPeerAsHost() {
       peer = new Peer(ROOM_ID, { debug: 1 });
-      peer.on('open', () => { statusDisplay.textContent = "Connected as Host"; isHost = true });
+      peer.on('open', () => { statusDisplay.textContent = "Connected as Host"; isHost = true; });
       peer.on('connection', setupConnection);
       peer.on('error', err => { if (err.type === 'unavailable-id') startPeerAsClient(); });
     }
@@ -294,12 +298,11 @@
     window.addEventListener("gamepadconnected", () => gamepadConnected = true);
     window.addEventListener("gamepaddisconnected", () => gamepadConnected = false);
 
-    // Assumed: Right stick axes[2]=lookHorizontal, axes[3]=lookVertical
     function applyGamepadLook(gp) {
       const rx = gp.axes[2] * lookSpeed;
       const ry = gp.axes[3] * lookSpeed;
-      controls.getObject().rotation.y -= rx; // yaw
-      camera.rotation.x -= ry;              // pitch
+      controls.getObject().rotation.y -= rx;
+      camera.rotation.x -= ry;
       camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, camera.rotation.x));
     }
 
@@ -310,36 +313,27 @@
 
       if (!isDead && chatInput.style.display !== "block") {
         const dir = new THREE.Vector3();
-
         if (keys.KeyW) dir.z -= 1;
         if (keys.KeyS) dir.z += 1;
         if (keys.KeyA) dir.x -= 1;
         if (keys.KeyD) dir.x += 1;
-
         if (gp) {
           dir.x += gp.axes[0];
           dir.z += gp.axes[1];
         }
-
         dir.normalize().applyQuaternion(camera.quaternion);
         dir.y = 0;
         const next = controls.getObject().position.clone().add(dir.multiplyScalar(0.2));
 
         if ((keys.Space || (gp && gp.buttons[0].pressed)) && !isJumping) {
-          velocityY = 0.2;
-          isJumping = true;
+          velocityY = 0.2; isJumping = true;
         }
-
         velocityY -= 0.01;
         next.y += velocityY;
-        if (next.y <= 1.6) {
-          next.y = 1.6;
-          velocityY = 0;
-          isJumping = false;
-        }
-
+        if (next.y <= 1.6) { next.y = 1.6; velocityY = 0; isJumping = false; }
         if (!collides(next)) controls.getObject().position.copy(next);
 
+        // send position to peers
         for (const id in connections) {
           const conn = connections[id];
           if (conn.open) {
@@ -354,40 +348,37 @@
       bullets.forEach((b,i) => {
         b.position.add(b.direction.clone().multiplyScalar(0.5));
         if (checkBulletHit(b)) {
-          scene.remove(b);
-          bullets.splice(i,1);
+          scene.remove(b); bullets.splice(i,1);
         } else if (b.position.length() > 200) {
-          scene.remove(b);
-          bullets.splice(i,1);
+          scene.remove(b); bullets.splice(i,1);
         }
       });
 
       updateESPAndTracers();
 
-      // Aimbot
+      // Aimbot (fixed initial best)
       if (mods.aimbot && isAiming) {
-        const e = Object.values(remotePlayers).reduce((best, rp) => {
-          const dist = camera.position.distanceTo(rp.mesh.position);
-          return dist < (best.dist ?? Infinity) ? { rp, dist } : best;
-        }, null);
-        if (e?.rp) {
-          const tgt = e.rp.mesh.position.clone().add(new THREE.Vector3(0,1,0));
-          const dir = tgt.sub(camera.position).normalize();
-          const tq = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,-1), dir);
+        const best = Object.values(remotePlayers).reduce((best, rp) => {
+          const d = camera.position.distanceTo(rp.mesh.position);
+          return d < best.dist ? { rp, dist: d } : best;
+        }, { dist: Infinity, rp: null });
+        if (best.rp) {
+          const tgt = best.rp.mesh.position.clone().add(new THREE.Vector3(0,1,0));
+          const dirQ = tgt.sub(camera.position).normalize();
+          const tq = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,-1), dirQ);
           camera.quaternion.slerp(tq, 0.2);
           controls.getObject().quaternion.copy(camera.quaternion);
         }
       }
 
-      // Triggerbot
+      // Triggerbot (fixed initial best)
       if (mods.triggerbot && !isDead && chatInput.style.display !== "block") {
-        const close = Object.values(remotePlayers).reduce((best, rp) => {
+        const best = Object.values(remotePlayers).reduce((best, rp) => {
           const d = camera.position.distanceTo(rp.mesh.position);
-          return d < (best.dist ?? Infinity) ? { rp, dist: d } : best;
-        }, null);
-        if (close?.rp) {
-          const pos = close.rp.mesh.position.clone();
-          pos.y += 1;
+          return d < best.dist ? { rp, dist: d } : best;
+        }, { dist: Infinity, rp: null });
+        if (best.rp) {
+          const pos = best.rp.mesh.position.clone().add(new THREE.Vector3(0,1,0));
           const vec = pos.project(camera);
           if (Math.abs(vec.x) < 0.05 && Math.abs(vec.y) < 0.05 && !triggerbotCooldown) {
             spawnBullet();
@@ -399,8 +390,7 @@
 
       // Gamepad shoot (RT)
       if (gp && gp.buttons[7].pressed && shootCooldown === 0 && !isDead && chatInput.style.display !== "block") {
-        spawnBullet();
-        shootCooldown = 15;
+        spawnBullet(); shootCooldown = 15;
       }
       if (shootCooldown) shootCooldown--;
 
