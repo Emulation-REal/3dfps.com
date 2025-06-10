@@ -143,6 +143,7 @@
             remotePlayers[conn.peer] = { mesh, health: 100 };
             updatePlayerList();
           }
+          // Update remote mesh position/rotation
           remotePlayers[conn.peer].mesh.position.set(data.x, 1, data.z);
           if (data.rotationY !== undefined)
             remotePlayers[conn.peer].mesh.rotation.y = data.rotationY;
@@ -231,14 +232,14 @@
     let mods = { esp: false, tracers: false, aimbot: false, triggerbot: false, prediction: false };
     const modMenu = document.createElement("div");
     modMenu.style.cssText = "position:absolute;top:50px;left:50px;background:rgba(0,0,0,0.8);color:white;padding:10px;border:2px solid white;border-radius:8px;display:none;z-index:99;";
-    modMenu.innerHTML = `
+    modMenu.innerHTML = 
       <strong>Mod Menu</strong><br>
       <label><input type="checkbox" id="espToggle"> ESP</label><br>
       <label><input type="checkbox" id="tracersToggle"> Tracers</label><br>
       <label><input type="checkbox" id="aimbotToggle"> Aimbot</label><br>
       <label><input type="checkbox" id="triggerbotToggle"> Triggerbot</label><br>
       <label><input type="checkbox" id="predictionToggle"> Prediction</label>
-    `;
+    ;
     document.body.appendChild(modMenu);
     ["esp","tracers","aimbot","triggerbot","prediction"].forEach(name => {
       document.getElementById(name + "Toggle").onchange = e => mods[name] = e.target.checked;
@@ -259,31 +260,8 @@
 
     function updateESPAndTracers() {
       clearHelpers();
-
       const eye = controls.getObject().position.clone().add(new THREE.Vector3(0, 1.6, 0));
 
-      // Draw YOUR prediction
-      if (mods.prediction) {
-        const selfId = "__self__";
-        const currSelf = controls.getObject().position.clone();
-        const prevSelf = lastPositions[selfId] || currSelf.clone();
-        const velSelf = currSelf.clone().sub(prevSelf);
-        const predictedSelf = currSelf.clone().add(velSelf.multiplyScalar(10));
-
-        const geoSelf = new THREE.BufferGeometry().setFromPoints([
-          currSelf.clone().add(new THREE.Vector3(0,1,0)),
-          predictedSelf.clone().add(new THREE.Vector3(0,1,0))
-        ]);
-        const matSelf = new THREE.LineBasicMaterial({ color:0x0000ff, depthTest:false });
-        const lineSelf = new THREE.Line(geoSelf, matSelf);
-        lineSelf.renderOrder = 997;
-        predictionLines.push(lineSelf);
-        scene.add(lineSelf);
-
-        lastPositions[selfId] = currSelf;
-      }
-
-      // Draw for all remote players
       for (const id in remotePlayers) {
         const enemy = remotePlayers[id];
         const currPos = enemy.mesh.position.clone();
@@ -313,8 +291,8 @@
         if (mods.prediction) {
           const prevPos = lastPositions[id] || currPos.clone();
           const velocity = currPos.clone().sub(prevPos);
+          // Predict 10 frames ahead
           const predictedPos = currPos.clone().add(velocity.multiplyScalar(10));
-
           const predGeo = new THREE.BufferGeometry().setFromPoints([
             currPos.clone().add(new THREE.Vector3(0,1,0)),
             predictedPos.clone().add(new THREE.Vector3(0,1,0))
@@ -324,7 +302,6 @@
           predLine.renderOrder = 997;
           predictionLines.push(predLine);
           scene.add(predLine);
-
           lastPositions[id] = currPos;
         }
       }
@@ -334,7 +311,7 @@
     document.addEventListener('mousedown', e => { if (e.button === 2) isAiming = true; });
     document.addEventListener('mouseup',   e => { if (e.button === 2) isAiming = false; });
 
-    // — Gamepad & Animate Loop — 
+    // — Gamepad & Animate Loop (unchanged except calling updateESPAndTracers) — 
     let gamepadConnected = false;
     const lookSpeed = 0.05;
     let shootCooldown = 0;
